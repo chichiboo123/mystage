@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Stage 🎭 — 나만의 무대 디자인</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎭</text></svg>">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./js/lib/three.module.js",
+    "three/addons/controls/OrbitControls.js": "./js/lib/OrbitControls.js",
+    "three/addons/utils/BufferGeometryUtils.js": "./js/lib/BufferGeometryUtils.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<header id="topbar">
+  <div class="logo">🎭 <strong>My Stage</strong><span class="logo-sub">나만의 무대 만들기</span></div>
+
+  <div class="top-group">
+    <label class="select-wrap">
+      <span>무대 형태</span>
+      <select id="stageSelect">
+        <option value="proscenium">🎭 프로시니엄 무대</option>
+        <option value="thrust">📐 돌출 무대</option>
+        <option value="arena">⭕ 원형 무대</option>
+        <option value="blackbox">⬛ 블랙박스</option>
+        <option value="outdoor">🌳 야외 무대</option>
+      </select>
+    </label>
+    <button id="btnZones" class="tbtn toggle" title="무대 구역 이름을 바닥에 표시해요">📍 구역 보기</button>
+    <button id="btnSeats" class="tbtn toggle active" title="객석 의자를 보이거나 숨겨요">🪑 객석</button>
+    <button id="btnPerform" class="tbtn toggle perform" title="극장 불을 끄고 조명만 켜서 진짜 공연처럼 봐요">🌙 공연 모드</button>
+  </div>
+
+  <div class="top-group right">
+    <button id="btnUndo" class="tbtn" title="되돌리기 (Ctrl+Z)">↩️ 되돌리기</button>
+    <button id="btnShot" class="tbtn" title="지금 화면을 사진으로 저장해요">📸 사진</button>
+    <button id="btnSave" class="tbtn" title="브라우저에 저장해요">💾 저장</button>
+    <button id="btnExport" class="tbtn" title="파일로 내보내서 친구와 나눠요">📤 내보내기</button>
+    <button id="btnImport" class="tbtn" title="파일에서 불러와요">📥 불러오기</button>
+    <input type="file" id="fileInput" accept=".json,application/json" hidden>
+    <button id="btnEdu" class="tbtn edu" title="무대 이론을 배워요">📚 배움터</button>
+  </div>
+</header>
+
+<div id="app">
+  <aside id="sidebar">
+    <nav id="modeTabs">
+      <button class="mode-tab active" data-mode="view" title="구경하기 — 클릭해도 아무것도 바뀌지 않아요">👀<span>보기</span></button>
+      <button class="mode-tab" data-mode="block" title="블록을 쌓아서 무대를 만들어요">🧱<span>블록</span></button>
+      <button class="mode-tab" data-mode="light" title="조명을 달아요">💡<span>조명</span></button>
+      <button class="mode-tab" data-mode="prop" title="소품과 배우를 놓아요">🪑<span>소품</span></button>
+    </nav>
+
+    <div id="palette">
+      <!-- 보기 모드 -->
+      <div class="pal-page" data-mode="view">
+        <h3>👀 구경하기</h3>
+        <p class="pal-help">마우스 왼쪽 버튼으로 돌려보고, 휠로 확대/축소, 오른쪽 버튼으로 이동해요.</p>
+        <p class="pal-help">조명을 클릭하면 설정을 볼 수 있어요.</p>
+        <div class="pal-tip">💡 아래의 <b>시점 버튼</b>으로 관객 자리, 무대 위, 조명 부스에서 무대를 살펴보세요!</div>
+      </div>
+
+      <!-- 블록 모드 -->
+      <div class="pal-page hidden" data-mode="block">
+        <h3>🧱 블록 쌓기</h3>
+        <p class="pal-help"><b>클릭</b> 놓기 · <b>오른쪽 클릭</b> 부수기</p>
+        <div class="shape-toggle">
+          <button class="shape-btn active" data-shape="cube" title="정육면체 블록">■ 블록</button>
+          <button class="shape-btn" data-shape="slab" title="절반 높이 블록 — 계단이나 낮은 단을 만들 때 좋아요">▬ 반블록</button>
+        </div>
+        <div id="blockGrid" class="swatch-grid"></div>
+      </div>
+
+      <!-- 조명 모드 -->
+      <div class="pal-page hidden" data-mode="light">
+        <h3>💡 조명 달기</h3>
+        <p class="pal-help">비추고 싶은 곳을 <b>클릭</b>하면 조명이 달려요. 조명을 클릭하면 색과 밝기를 바꿀 수 있어요.</p>
+        <div id="lightGrid" class="card-list"></div>
+        <div class="house-box">
+          <label>🏠 극장 전체 조명 (하우스 라이트)</label>
+          <input type="range" id="houseSlider" min="0" max="100" value="70">
+        </div>
+      </div>
+
+      <!-- 소품 모드 -->
+      <div class="pal-page hidden" data-mode="prop">
+        <h3>🪑 소품 &amp; 배우</h3>
+        <p class="pal-help"><b>클릭</b> 놓기 · <b>오른쪽 클릭</b> 치우기 · <b>R</b> 방향 돌리기</p>
+        <div id="propGrid" class="card-list"></div>
+      </div>
+    </div>
+  </aside>
+
+  <main id="viewport">
+    <canvas id="stage3d"></canvas>
+
+    <!-- 조명 설정 패널 -->
+    <div id="lightPanel" class="hidden">
+      <div class="lp-head"><span id="lpTitle">💡 조명</span><button id="lpClose">✕</button></div>
+      <label class="lp-row"><span>전원</span><button id="lpPower" class="tbtn toggle active">켜짐</button></label>
+      <div class="lp-row col"><span>색깔 (컬러 젤)</span>
+        <div id="lpColors" class="gel-grid"></div>
+        <input type="color" id="lpCustomColor" value="#fff2cc" title="원하는 색 직접 고르기">
+      </div>
+      <label class="lp-row col"><span>밝기 <em id="lpIntVal"></em></span><input type="range" id="lpIntensity" min="0.5" max="12" step="0.5"></label>
+      <label class="lp-row col"><span>빛 퍼짐 (빔 각도) <em id="lpAngVal"></em></span><input type="range" id="lpAngle" min="8" max="55" step="1"></label>
+      <div class="lp-row">
+        <button id="lpAim" class="tbtn">🎯 다시 겨누기</button>
+        <button id="lpDelete" class="tbtn danger">🗑️ 삭제</button>
+      </div>
+    </div>
+
+    <div id="hintbar"><span id="hintText"></span></div>
+
+    <div id="viewButtons">
+      <button class="vbtn" data-view="audience" title="관객이 보는 시점">🎟️ 관객석</button>
+      <button class="vbtn" data-view="stage" title="배우가 서 있는 시점">🎬 무대 위</button>
+      <button class="vbtn" data-view="bird" title="하늘에서 내려다보기">🦅 하늘</button>
+      <button class="vbtn" data-view="booth" title="조명 감독의 자리">💡 조명 부스</button>
+    </div>
+  </main>
+</div>
+
+<!-- 시작 화면 -->
+<div id="welcomeModal" class="modal">
+  <div class="modal-box welcome">
+    <h1>🎭 My Stage</h1>
+    <p class="welcome-sub">블록을 쌓고 조명을 달아서 <b>나만의 무대</b>를 디자인해 보세요!<br>먼저 무대 형태를 골라볼까요?</p>
+    <div id="welcomeCards" class="stage-cards"></div>
+    <button id="btnContinue" class="tbtn big hidden">▶️ 지난 작품 이어서 만들기</button>
+  </div>
+</div>
+
+<!-- 배움터 -->
+<div id="eduModal" class="modal hidden">
+  <div class="modal-box edu-box">
+    <div class="edu-head">
+      <h2>📚 무대 배움터</h2>
+      <button id="eduClose" class="tbtn">✕ 닫기</button>
+    </div>
+    <nav id="eduTabs"></nav>
+    <div id="eduContent"></div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
