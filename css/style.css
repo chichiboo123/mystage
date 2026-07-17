@@ -16,10 +16,17 @@
 
 html, body { height: 100%; overflow: hidden; }
 body {
-  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-family: "Pretendard GOV Variable", "Pretendard GOV", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
   background: var(--bg); color: var(--text);
   display: flex; flex-direction: column;
   user-select: none;
+}
+
+/* 픽셀 아트 디지털 타이틀 폰트 */
+.pixel {
+  font-family: "Press Start 2P", monospace;
+  letter-spacing: 0;
+  line-height: 1.3;
 }
 
 /* ---------- 상단 바 ---------- */
@@ -30,8 +37,9 @@ body {
   border-bottom: 2px solid var(--line);
   flex-wrap: wrap; z-index: 20;
 }
-.logo { font-size: 20px; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
-.logo strong { color: var(--accent); letter-spacing: .5px; }
+.logo { font-size: 20px; display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+.logo .logo-star { font-size: 20px; }
+.logo strong.pixel { color: var(--accent); font-size: 15px; text-shadow: 2px 2px 0 #7a5a00; }
 .logo-sub { font-size: 12px; color: var(--dim); }
 
 .top-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -171,7 +179,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
   box-shadow: 0 20px 60px rgba(0,0,0,.6);
 }
 .welcome { text-align: center; }
-.welcome h1 { font-size: 34px; color: var(--accent); margin-bottom: 8px; }
+.welcome h1 { font-size: 26px; color: var(--accent); margin-bottom: 14px; }
+.welcome h1 .pixel { font-size: 26px; text-shadow: 3px 3px 0 #7a5a00; }
+.welcome h1 .logo-star { font-size: 30px; }
 .welcome-sub { color: var(--dim); line-height: 1.6; margin-bottom: 22px; }
 .welcome-sub b { color: var(--text); }
 .stage-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 18px; }
@@ -229,3 +239,117 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
   #sidebar { width: 190px; min-width: 190px; }
   .swatch-grid { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ============ v2 추가 컴포넌트 ============ */
+.tbtn.small { padding: 5px 9px; font-size: 12px; }
+.tbtn.wide { width: 100%; margin-bottom: 8px; }
+.tbtn.big-ic { font-size: 18px; padding: 6px 12px; }
+
+/* 장(Scene) 바 */
+#sceneBar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px; background: #1c1e26; border-bottom: 1px solid var(--line);
+  flex-wrap: wrap; z-index: 15;
+}
+.scene-label { font-size: 13px; color: var(--accent); font-weight: 700; }
+#sceneTabs { display: flex; gap: 5px; flex-wrap: wrap; }
+.scene-tab {
+  display: flex; align-items: center; gap: 5px;
+  background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
+  border-radius: 999px; padding: 5px 10px 5px 12px; font-size: 12.5px; cursor: pointer;
+}
+.scene-tab.active { color: var(--accent); border-color: var(--accent); background: #3a3524; }
+.scene-tab .sx { font-size: 12px; opacity: .6; padding: 0 2px; border-radius: 50%; }
+.scene-tab .sx:hover { opacity: 1; color: var(--danger); }
+.scene-hint { font-size: 11.5px; color: var(--dim); margin-left: auto; }
+
+/* 카테고리 칩 */
+.cat-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.cat-chip {
+  background: var(--panel); border: 1px solid var(--line); color: var(--dim);
+  border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+}
+.cat-chip.active { color: var(--accent); border-color: var(--accent); background: #35311f; }
+
+/* 조명 세트/직접 토글 */
+.light-mode-toggle, .music-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.lm-btn, .mtab {
+  flex: 1; padding: 7px; border-radius: 8px; cursor: pointer; font-size: 12.5px;
+  background: var(--panel); color: var(--dim); border: 1px solid var(--line);
+}
+.lm-btn.active, .mtab.active { border-color: var(--accent); color: var(--accent); background: #3a3524; }
+
+.preset-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.preset-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 9px; cursor: pointer; color: var(--text);
+}
+.preset-btn:hover { border-color: var(--accent2); }
+.preset-btn .pe { font-size: 18px; }
+.preset-btn .pn { font-size: 12px; font-weight: 700; }
+.preset-btn .pd { font-size: 10px; color: var(--dim); line-height: 1.3; }
+
+/* 공용 사이드 패널 */
+.side-panel {
+  position: absolute; top: 14px; right: 14px; width: 250px;
+  background: rgba(30,32,40,.97); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.5); z-index: 16; max-height: calc(100% - 80px); overflow-y: auto;
+}
+#elementPanel { top: 14px; right: 14px; }
+#musicPanel { top: 14px; right: 14px; width: 280px; }
+.sp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-weight: 700; }
+.sp-close { background: none; border: none; color: var(--dim); font-size: 15px; cursor: pointer; }
+.sp-close:hover { color: var(--text); }
+
+/* 요소 목록 */
+#elementList .el-group-title { font-size: 12px; color: var(--accent); margin: 10px 0 5px; font-weight: 700; }
+#elementList .el-group-title:first-child { margin-top: 0; }
+.el-row {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 8px; margin-bottom: 5px; font-size: 12.5px; cursor: pointer;
+}
+.el-row:hover { border-color: var(--accent2); }
+.el-row.sel { border-color: var(--accent); }
+.el-row .eic { font-size: 16px; }
+.el-row .enm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.el-row .edel { background: none; border: none; color: var(--dim); font-size: 14px; cursor: pointer; }
+.el-row .edel:hover { color: var(--danger); }
+.el-empty { font-size: 12px; color: var(--dim); padding: 8px 0; }
+
+/* 음악 */
+.music-body { margin-bottom: 10px; }
+.music-name, .music-note { font-size: 11.5px; color: var(--dim); margin-top: 6px; line-height: 1.4; }
+.txt-input {
+  width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  border-radius: 8px; padding: 8px; font-size: 12.5px; margin-bottom: 6px;
+}
+.music-controls { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.vol { display: flex; align-items: center; gap: 5px; flex: 1; font-size: 12px; }
+#ytHost { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: .01; pointer-events: none; }
+
+/* 조명 큐 바 */
+#cuePanel {
+  position: absolute; left: 14px; right: 14px; bottom: 58px;
+  background: rgba(28,30,38,.97); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 10px 14px; z-index: 16;
+  box-shadow: 0 8px 30px rgba(0,0,0,.5);
+}
+.cue-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-weight: 700; font-size: 13px; }
+.cue-head .sp-close { margin-left: auto; }
+.cue-fade { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--dim); font-weight: 400; }
+.cue-fade input { width: 90px; }
+.cue-fade em { font-style: normal; color: var(--accent); }
+.cue-list { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 6px; min-height: 34px; }
+.cue-chip {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 8px; padding: 6px 8px 6px 11px; font-size: 12.5px; cursor: pointer;
+}
+.cue-chip.active { border-color: var(--accent); color: var(--accent); background: #3a3524; }
+.cue-chip .cx { opacity: .6; }
+.cue-chip .cx:hover { opacity: 1; color: var(--danger); }
+.cue-hint { font-size: 11.5px; color: var(--dim); }
+.cue-empty { font-size: 12px; color: var(--dim); padding: 6px 0; }

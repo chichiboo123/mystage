@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>My Stage 🎭 — 나만의 무대 디자인</title>
+<title>My Stage ✨ — 나만의 무대 디자인</title>
+<link rel="stylesheet" href="css/fonts/pretendard-gov.css">
 <link rel="stylesheet" href="css/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎭</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌟</text></svg>">
 <script type="importmap">
 {
   "imports": {
@@ -19,34 +20,45 @@
 <body>
 
 <header id="topbar">
-  <div class="logo">🎭 <strong>My Stage</strong><span class="logo-sub">나만의 무대 만들기</span></div>
+  <div class="logo"><span class="logo-star">🌟</span><strong class="pixel">My Stage</strong><span class="logo-sub">나만의 무대 만들기</span></div>
 
   <div class="top-group">
     <label class="select-wrap">
       <span>무대 형태</span>
       <select id="stageSelect">
-        <option value="proscenium">🎭 프로시니엄 무대</option>
+        <option value="proscenium">🏛️ 프로시니엄 무대</option>
         <option value="thrust">📐 돌출 무대</option>
         <option value="arena">⭕ 원형 무대</option>
         <option value="blackbox">⬛ 블랙박스</option>
         <option value="outdoor">🌳 야외 무대</option>
       </select>
     </label>
-    <button id="btnZones" class="tbtn toggle" title="무대 구역 이름을 바닥에 표시해요">📍 구역 보기</button>
+    <button id="btnZones" class="tbtn toggle" title="무대 구역 이름을 바닥에 표시해요">📍 구역</button>
     <button id="btnSeats" class="tbtn toggle active" title="객석 의자를 보이거나 숨겨요">🪑 객석</button>
     <button id="btnPerform" class="tbtn toggle perform" title="극장 불을 끄고 조명만 켜서 진짜 공연처럼 봐요">🌙 공연 모드</button>
   </div>
 
   <div class="top-group right">
-    <button id="btnUndo" class="tbtn" title="되돌리기 (Ctrl+Z)">↩️ 되돌리기</button>
-    <button id="btnShot" class="tbtn" title="지금 화면을 사진으로 저장해요">📸 사진</button>
-    <button id="btnSave" class="tbtn" title="브라우저에 저장해요">💾 저장</button>
-    <button id="btnExport" class="tbtn" title="파일로 내보내서 친구와 나눠요">📤 내보내기</button>
-    <button id="btnImport" class="tbtn" title="파일에서 불러와요">📥 불러오기</button>
+    <button id="btnList" class="tbtn" title="추가한 요소 목록을 보고 삭제해요">📋 목록</button>
+    <button id="btnMusic" class="tbtn" title="음악을 넣어요">🎵 음악</button>
+    <button id="btnCue" class="tbtn" title="조명 큐(장면 전환)를 만들어요">🎬 큐</button>
+    <button id="btnUndo" class="tbtn" title="되돌리기 (Ctrl+Z)">↩️</button>
+    <button id="btnShot" class="tbtn" title="지금 화면을 사진으로 저장해요">📸</button>
+    <button id="btnSave" class="tbtn" title="브라우저에 저장해요">💾</button>
+    <button id="btnExport" class="tbtn" title="파일로 내보내서 친구와 나눠요">📤</button>
+    <button id="btnImport" class="tbtn" title="파일에서 불러와요">📥</button>
     <input type="file" id="fileInput" accept=".json,application/json" hidden>
     <button id="btnEdu" class="tbtn edu" title="무대 이론을 배워요">📚 배움터</button>
   </div>
 </header>
+
+<!-- 장(Scene) 관리 바 -->
+<div id="sceneBar">
+  <span class="scene-label">🎬 장(場):</span>
+  <div id="sceneTabs"></div>
+  <button id="btnAddScene" class="tbtn small" title="새 장면을 추가해요">＋ 새 장</button>
+  <span class="scene-hint">각 장마다 블록·조명·소품을 따로 꾸밀 수 있어요</span>
+</div>
 
 <div id="app">
   <aside id="sidebar">
@@ -58,41 +70,58 @@
     </nav>
 
     <div id="palette">
-      <!-- 보기 모드 -->
+      <!-- 보기 -->
       <div class="pal-page" data-mode="view">
         <h3>👀 구경하기</h3>
-        <p class="pal-help">마우스 왼쪽 버튼으로 돌려보고, 휠로 확대/축소, 오른쪽 버튼으로 이동해요.</p>
-        <p class="pal-help">조명을 클릭하면 설정을 볼 수 있어요.</p>
-        <div class="pal-tip">💡 아래의 <b>시점 버튼</b>으로 관객 자리, 무대 위, 조명 부스에서 무대를 살펴보세요!</div>
+        <p class="pal-help">마우스 왼쪽 드래그로 돌려보고, 휠로 확대/축소, 오른쪽 드래그로 이동해요.</p>
+        <p class="pal-help">놓은 소품·조명을 <b>한 번 클릭하면 선택</b>, <b>한 번 더 클릭하면 삭제</b>돼요.</p>
+        <div class="pal-tip">💡 아래 <b>시점 버튼</b>으로 관객석·무대 위·조명 부스에서 무대를 살펴보세요!</div>
       </div>
 
-      <!-- 블록 모드 -->
+      <!-- 블록 -->
       <div class="pal-page hidden" data-mode="block">
         <h3>🧱 블록 쌓기</h3>
         <p class="pal-help"><b>클릭</b> 놓기 · <b>오른쪽 클릭</b> 부수기</p>
         <div class="shape-toggle">
           <button class="shape-btn active" data-shape="cube" title="정육면체 블록">■ 블록</button>
-          <button class="shape-btn" data-shape="slab" title="절반 높이 블록 — 계단이나 낮은 단을 만들 때 좋아요">▬ 반블록</button>
+          <button class="shape-btn" data-shape="slab" title="절반 높이 블록">▬ 반블록</button>
         </div>
         <div id="blockGrid" class="swatch-grid"></div>
       </div>
 
-      <!-- 조명 모드 -->
+      <!-- 조명 -->
       <div class="pal-page hidden" data-mode="light">
         <h3>💡 조명 달기</h3>
-        <p class="pal-help">비추고 싶은 곳을 <b>클릭</b>하면 조명이 달려요. 조명을 클릭하면 색과 밝기를 바꿀 수 있어요.</p>
-        <div id="lightGrid" class="card-list"></div>
+        <div class="light-mode-toggle">
+          <button class="lm-btn active" data-lm="preset" title="자주 쓰는 조명 배치를 한 번에">✨ 조명 세트</button>
+          <button class="lm-btn" data-lm="free" title="조명을 하나씩 직접 달기">🔧 직접 달기</button>
+        </div>
+        <div id="lmPreset" class="lm-page">
+          <p class="pal-help">버튼을 누르면 자주 쓰는 조명 배치가 <b>한 번에</b> 만들어져요.</p>
+          <div id="presetGrid" class="preset-grid"></div>
+        </div>
+        <div id="lmFree" class="lm-page hidden">
+          <p class="pal-help">비추고 싶은 곳을 <b>클릭</b>하면 조명이 달려요. 조명을 클릭하면 색·밝기를 바꿀 수 있어요.</p>
+          <div id="lightGrid" class="card-list"></div>
+        </div>
         <div class="house-box">
           <label>🏠 극장 전체 조명 (하우스 라이트)</label>
           <input type="range" id="houseSlider" min="0" max="100" value="70">
         </div>
       </div>
 
-      <!-- 소품 모드 -->
+      <!-- 소품 -->
       <div class="pal-page hidden" data-mode="prop">
         <h3>🪑 소품 &amp; 배우</h3>
         <p class="pal-help"><b>클릭</b> 놓기 · <b>오른쪽 클릭</b> 치우기 · <b>R</b> 방향 돌리기</p>
+        <div id="propCats" class="cat-chips"></div>
         <div id="propGrid" class="card-list"></div>
+        <div id="imagePanel" class="hidden">
+          <p class="pal-help">내 그림·사진을 올려서 무대에 세울 수 있어요. (2D 입간판으로 세워져요)</p>
+          <button id="btnUploadImg" class="tbtn wide">＋ 이미지 올리기</button>
+          <input type="file" id="imgInput" accept="image/*" hidden>
+          <div id="imgGrid" class="swatch-grid"></div>
+        </div>
       </div>
     </div>
   </aside>
@@ -101,8 +130,8 @@
     <canvas id="stage3d"></canvas>
 
     <!-- 조명 설정 패널 -->
-    <div id="lightPanel" class="hidden">
-      <div class="lp-head"><span id="lpTitle">💡 조명</span><button id="lpClose">✕</button></div>
+    <div id="lightPanel" class="side-panel hidden">
+      <div class="sp-head"><span id="lpTitle">💡 조명</span><button class="sp-close" data-close="lightPanel">✕</button></div>
       <label class="lp-row"><span>전원</span><button id="lpPower" class="tbtn toggle active">켜짐</button></label>
       <div class="lp-row col"><span>색깔 (컬러 젤)</span>
         <div id="lpColors" class="gel-grid"></div>
@@ -114,6 +143,57 @@
         <button id="lpAim" class="tbtn">🎯 다시 겨누기</button>
         <button id="lpDelete" class="tbtn danger">🗑️ 삭제</button>
       </div>
+    </div>
+
+    <!-- 요소 목록 패널 -->
+    <div id="elementPanel" class="side-panel hidden">
+      <div class="sp-head"><span>📋 요소 목록</span><button class="sp-close" data-close="elementPanel">✕</button></div>
+      <div id="elementList"></div>
+    </div>
+
+    <!-- 이미지 편집 패널 -->
+    <div id="imgEditPanel" class="side-panel hidden">
+      <div class="sp-head"><span>🖼️ 이미지</span><button class="sp-close" data-close="imgEditPanel">✕</button></div>
+      <label class="lp-row col"><span>크기 <em id="ieSizeVal"></em></span><input type="range" id="ieSize" min="0.4" max="4" step="0.1"></label>
+      <div class="lp-row"><button id="ieRotate" class="tbtn">🔄 방향 돌리기</button><button id="ieDelete" class="tbtn danger">🗑️ 삭제</button></div>
+    </div>
+
+    <!-- 음악 패널 -->
+    <div id="musicPanel" class="side-panel hidden">
+      <div class="sp-head"><span>🎵 음악</span><button class="sp-close" data-close="musicPanel">✕</button></div>
+      <div class="music-tabs">
+        <button class="mtab active" data-mtab="file">🎧 파일 업로드</button>
+        <button class="mtab" data-mtab="yt">▶️ 유튜브</button>
+      </div>
+      <div id="mFile" class="music-body">
+        <button id="btnUploadAudio" class="tbtn wide">＋ 음악 파일 올리기</button>
+        <input type="file" id="audioInput" accept="audio/*" hidden>
+        <p id="audioName" class="music-name">아직 올린 음악이 없어요</p>
+      </div>
+      <div id="mYt" class="music-body hidden">
+        <input type="text" id="ytUrl" class="txt-input" placeholder="유튜브 주소 붙여넣기">
+        <button id="btnLoadYt" class="tbtn wide">불러오기</button>
+        <p class="music-note">유튜브 공식 플레이어로 배경 음악을 재생해요.</p>
+      </div>
+      <div class="music-controls">
+        <button id="mPlay" class="tbtn big-ic" title="재생/일시정지">▶️</button>
+        <button id="mLoop" class="tbtn toggle" title="반복 재생">🔁 반복</button>
+        <label class="vol"><span>🔊</span><input type="range" id="mVol" min="0" max="100" value="80"></label>
+      </div>
+      <div id="ytHost"></div>
+    </div>
+
+    <!-- 조명 큐 바 -->
+    <div id="cuePanel" class="hidden">
+      <div class="cue-head">
+        <span>🎬 조명 큐</span>
+        <button id="cueCapture" class="tbtn small">＋ 지금 조명을 큐로 저장</button>
+        <label class="cue-fade">전환 시간 <input type="range" id="cueFade" min="0" max="5" step="0.5" value="1.5"><em id="cueFadeVal">1.5초</em></label>
+        <button id="cuePlay" class="tbtn small">▶️ 순서대로 재생</button>
+        <button class="sp-close" data-close="cuePanel">✕</button>
+      </div>
+      <div id="cueList" class="cue-list"></div>
+      <p class="cue-hint">각 장면의 조명을 큐로 저장해두고, 큐를 클릭하면 그 조명으로 <b>부드럽게 전환</b>돼요.</p>
     </div>
 
     <div id="hintbar"><span id="hintText"></span></div>
@@ -130,7 +210,7 @@
 <!-- 시작 화면 -->
 <div id="welcomeModal" class="modal">
   <div class="modal-box welcome">
-    <h1>🎭 My Stage</h1>
+    <h1><span class="logo-star">🌟</span> <span class="pixel">My Stage</span></h1>
     <p class="welcome-sub">블록을 쌓고 조명을 달아서 <b>나만의 무대</b>를 디자인해 보세요!<br>먼저 무대 형태를 골라볼까요?</p>
     <div id="welcomeCards" class="stage-cards"></div>
     <button id="btnContinue" class="tbtn big hidden">▶️ 지난 작품 이어서 만들기</button>
