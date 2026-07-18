@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createBlockTypes } from './blocks.js';
-import { PROP_CATEGORIES, PROP_INFO, buildProp } from './props.js';
+import { PROP_CATEGORIES, PROP_INFO, buildProp, ACTOR_OPTIONS, randomActorCfg } from './props.js';
 import { EDU_TABS } from './education.js';
 import { LIGHT_PRESETS } from './lighting-presets.js';
 
@@ -31,11 +31,12 @@ const uid = () => uidSeq++;
 // ---------------- 상태 ----------------
 const state = {
   mode: 'view', blockType: 'wood', blockShape: 'cube',
-  lightType: 'spot', lightMode: 'preset',
+  lightType: 'spot', lightMode: 'preset', activePreset: null,
   propCat: 'people', propType: 'actor', propRot: 0, propVariant: 0,
+  actorCfg: { skin: '#e8b88f', hair: '#4a3626', hairStyle: 'short', shirt: '#d94040', pants: '#31435e', face: 'basic' },
   activeImage: null,
   perform: false, zones: false, seats: true, house: 0.7,
-  selected: null, retargeting: false, dirty: false,
+  selected: null, retargeting: false, moveMode: false, dirty: false,
   cueMul: 1, cueTransition: null,
 };
 
@@ -74,7 +75,7 @@ controls.maxDistance = 90;
 controls.target.set(0, 2, -6);
 
 // ---------------- 하우스 조명 ----------------
-const ambient = new THREE.AmbientLight(0xffffff, 0.35);
+const ambientL = new THREE.AmbientLight(0xffffff, 0.35);
 const hemi = new THREE.HemisphereLight(0xbfd4ff, 0x33291f, 0.55);
 const sun = new THREE.DirectionalLight(0xfff1d8, 1.5);
 sun.position.set(14, 24, 16);
@@ -84,7 +85,7 @@ sun.shadow.camera.left = -32; sun.shadow.camera.right = 32;
 sun.shadow.camera.top = 32; sun.shadow.camera.bottom = -32;
 sun.shadow.camera.far = 80;
 sun.shadow.bias = -0.0004;
-scene.add(ambient, hemi, sun, sun.target);
+scene.add(ambientL, hemi, sun, sun.target);
 
 const HOUSE_BASE = { ambient: 0.35, hemi: 0.55, sun: 1.5 };
 let envLightCfg = { bg: 0x17181d, hemiSky: 0xbfd4ff };
@@ -92,12 +93,13 @@ let envLightCfg = { bg: 0x17181d, hemiSky: 0xbfd4ff };
 function applyHouseLights() {
   const h = state.house;
   const perf = state.perform ? 0.1 : 1;
-  ambient.intensity = HOUSE_BASE.ambient * h * perf + 0.03;
+  ambientL.intensity = HOUSE_BASE.ambient * h * perf + 0.03;
   hemi.intensity = HOUSE_BASE.hemi * h * perf + 0.02;
   sun.intensity = HOUSE_BASE.sun * h * perf;
   const bg = new THREE.Color(envLightCfg.bg);
   if (state.perform) bg.multiplyScalar(0.16);
   scene.background = bg;
+  if (scene.fog) scene.fog.color.copy(bg);
 }
 
 // ---------------- 그룹 ----------------
@@ -108,6 +110,7 @@ const lightGroup = new THREE.Group();
 const imageGroup = new THREE.Group();
 const seatGroup = new THREE.Group();
 scene.add(envGroup, blockGroup, propGroup, lightGroup, imageGroup, seatGroup);
+let envAnims = []; // 환경 애니메이션 (물결, 반딧불이, 행성 회전…)
 
 const groundPlane = new THREE.Mesh(
   new THREE.PlaneGeometry(200, 200),
@@ -142,6 +145,7 @@ function removeBlock(x, y, z, record = false) {
   if (!b) return false;
   blockGroup.remove(b.mesh);
   blocks.delete(k);
+  if (state.selected?.kind === 'block' && state.selected.ref.x === x && state.selected.ref.y === y && state.selected.ref.z === z) clearSelection();
   if (record) pushUndo({ undo: () => addBlock(x, y, z, b.type, b.shape, false) });
   return true;
 }
@@ -174,30 +178,24 @@ function makeBatten(x1, x2, y, z) {
   const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, len, 8), envMat('#111318', { metalness: 0.5 }));
   bar.rotation.z = Math.PI / 2; bar.position.set((x1 + x2) / 2, y, z); envGroup.add(bar);
 }
-// 야자수 (바닷가 테마)
 function makePalm(x, z) {
   const g = new THREE.Group();
   for (let i = 0; i < 4; i++) {
     const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.12 - i * 0.015, 0.15 - i * 0.015, 0.8, 8), envMat('#8a6a3a'));
-    seg.position.set(i * 0.12, 0.4 + i * 0.75, 0);
-    seg.rotation.z = -0.1;
-    g.add(seg);
+    seg.position.set(i * 0.12, 0.4 + i * 0.75, 0); seg.rotation.z = -0.1; g.add(seg);
   }
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
     const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.06, 0.4), envMat('#2f7d3a'));
     leaf.position.set(0.45 + Math.cos(a) * 0.8, 3.3 + Math.sin(i) * 0.1, Math.sin(a) * 0.8);
-    leaf.lookAt(0.45, 3.0, 0);
-    leaf.rotation.z += 0.35;
-    g.add(leaf);
+    leaf.lookAt(0.45, 3.0, 0); leaf.rotation.z += 0.35; g.add(leaf);
   }
   g.position.set(x, 0, z);
   g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   envGroup.add(g);
 }
-// 별하늘 (우주 테마)
 function makeStars() {
-  const n = 900;
+  const n = 1100;
   const pos = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     const r = 70 + Math.random() * 40;
@@ -211,11 +209,34 @@ function makeStars() {
   const stars = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.35, sizeAttenuation: true }));
   envGroup.add(stars);
 }
+// 반딧불이 (숲)
+function makeFireflies() {
+  const n = 28;
+  const base = new Float32Array(n * 3), pos = new Float32Array(n * 3), phase = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    base[i * 3] = -14 + Math.random() * 30;
+    base[i * 3 + 1] = 1.5 + Math.random() * 4;
+    base[i * 3 + 2] = -16 + Math.random() * 32;
+    phase[i] = Math.random() * Math.PI * 2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xd8ff9a, size: 0.22, sizeAttenuation: true, transparent: true, opacity: 0.9 }));
+  envGroup.add(pts);
+  envAnims.push(t => {
+    for (let i = 0; i < n; i++) {
+      pos[i * 3] = base[i * 3] + Math.sin(t * 0.5 + phase[i]) * 1.2;
+      pos[i * 3 + 1] = base[i * 3 + 1] + Math.sin(t * 0.9 + phase[i] * 2) * 0.5;
+      pos[i * 3 + 2] = base[i * 3 + 2] + Math.cos(t * 0.4 + phase[i]) * 1.2;
+    }
+    geo.attributes.position.needsUpdate = true;
+    pts.material.opacity = 0.55 + 0.4 * Math.sin(t * 2);
+  });
+}
 function buildSeats(list) {
   seatGroup.clear();
   if (!list.length) return;
   const seatG = new THREE.BoxGeometry(0.75, 0.14, 0.7); seatG.translate(0, 0.42, 0);
-  // 등받이는 -Z 쪽 — 의자가 로컬 +Z(무대 반대편의 반대, 즉 회전값 기준 정면)를 바라보게 한다
   const backG = new THREE.BoxGeometry(0.75, 0.62, 0.12); backG.translate(0, 0.75, -0.3);
   const legG = new THREE.BoxGeometry(0.6, 0.36, 0.55); legG.translate(0, 0.18, 0);
   const merged = mergeGeometries([seatG, backG, legG]);
@@ -230,43 +251,82 @@ function platform(x0, x1, z0, z1, topType = 'wood', baseType = 'darkwood', h = 2
 }
 
 // ---------------- 무대 프리셋 ----------------
+// 야외 무대 — 숲/바다/우주 각각 고유한 무대 구조
 function outdoorPreset(theme) {
   const cfg = {
-    forest: { name: '야외 무대 · 숲속', emoji: '🌲', desc: '나무가 우거진 숲속 축제 무대', env: { bg: 0x87b8e8, hemiSky: 0xbfe0ff } },
-    sea:    { name: '야외 무대 · 바닷가', emoji: '🌊', desc: '파도가 반짝이는 바닷가 무대', env: { bg: 0x8fd2ee, hemiSky: 0xd6f2ff } },
-    space:  { name: '야외 무대 · 우주', emoji: '🚀', desc: '별이 쏟아지는 우주 기지 무대', env: { bg: 0x070811, hemiSky: 0x5a6a9a } },
+    forest: { name: '야외 무대 · 숲속', emoji: '🌲', desc: '나무와 바위에 둘러싸인 숲속 공연장', env: { bg: 0x87b8e8, hemiSky: 0xbfe0ff, fog: [0x9cc4e4, 34, 120] }, bounds: { x0: -7, x1: 9, z0: -11, z1: -1, y: 2 } },
+    sea:    { name: '야외 무대 · 바닷가', emoji: '🌊', desc: '파도와 수평선이 보이는 해변 축제무대', env: { bg: 0x8fd2ee, hemiSky: 0xd6f2ff, fog: [0xa8dcee, 45, 140] }, bounds: { x0: -8, x1: 10, z0: -12, z1: -1, y: 2 } },
+    space:  { name: '야외 무대 · 우주', emoji: '🚀', desc: '달 표면 크레이터 위의 우주기지 무대', env: { bg: 0x070811, hemiSky: 0x5a6a9a }, bounds: { x0: -6, x1: 8, z0: -13, z1: 0, y: 2 } },
   }[theme];
   return {
     name: cfg.name, emoji: cfg.emoji, desc: cfg.desc,
-    stageBounds: { x0: -8, x1: 9, z0: -12, z1: -1, y: 2 }, stageCenter: new THREE.Vector3(0.5, 2, -6.5),
-    gridY: 8.6, env: cfg.env,
+    stageBounds: cfg.bounds, stageCenter: new THREE.Vector3(0.5, 2, (cfg.bounds.z0 + cfg.bounds.z1) / 2),
+    gridY: 8.4, env: cfg.env, freeFront: false,
     build() {
       if (theme === 'forest') {
         const grassTex = BLOCKS.grass.mat.map.clone(); grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(60, 60); grassTex.needsUpdate = true;
         makeFloor('#4f9e3f', grassTex);
-        for (const [x, z] of [[-9, -13], [10, -13], [-9, 0], [10, 0]]) envBox(0.5, 8.5, 0.5, '#6b4a2b', x + 0.5, 4.25, z + 0.5);
-        const roof = envBox(22, 0.5, 16, '#8a5a30', 0.5, 8.8, -6); roof.rotation.x = 0.06;
-        const back = makeCurtain(19, 6.4, '#f2ead8'); back.position.set(0.5, 5.1, -12.6); envGroup.add(back);
-        for (const [x, z] of [[-18, -8], [-15, 8], [17, -10], [19, 6], [-20, 16], [21, 18], [12, 20], [-11, 22]]) {
+        // 무대를 감싸는 숲 (지붕·기둥 없이 자연 지형과 어우러진 빈터)
+        for (let i = 0; i < 11; i++) {
+          const a = -1.15 + (i / 10) * 2.3;
+          const r = 13 + (i % 3) * 2.2;
+          const t = buildProp(i % 4 === 0 ? 'pine' : 'tree');
+          t.position.set(0.5 + Math.sin(a) * r, 0, -6 - Math.cos(a) * r);
+          t.rotation.y = Math.random() * 6.28;
+          const s = 1 + Math.random() * 0.7; t.scale.setScalar(s);
+          envGroup.add(t);
+        }
+        for (const [x, z, s] of [[-9.5, -1.5, 1.2], [10.5, -3, 1], [-11, 4, 0.8], [12, 2, 0.9]]) {
+          const rock = new THREE.Mesh(new THREE.SphereGeometry(0.9 * s, 8, 6), envMat('#8f9099', { flatShading: true }));
+          rock.scale.set(1, 0.6, 0.85); rock.position.set(x, 0.3 * s, z); rock.castShadow = true; rock.receiveShadow = true; envGroup.add(rock);
+        }
+        // 먼 언덕
+        for (const [x, z, r] of [[-24, -20, 10], [26, -24, 12], [0, -34, 16]]) {
+          const hill = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), envMat('#3e7a38'));
+          hill.scale.set(1, 0.28, 1); hill.position.set(x, -0.4, z); hill.receiveShadow = true; envGroup.add(hill);
+        }
+        for (const [x, z] of [[-16, 8], [18, 10], [-20, 18], [21, 20], [12, 22], [-11, 24]]) {
           const t = buildProp('tree'); t.position.set(x, 0, z); t.rotation.y = Math.random() * 6.28; envGroup.add(t);
         }
+        makeFireflies();
       } else if (theme === 'sea') {
         makeFloor('#ecd9a8'); // 모래사장
-        // 무대 뒤로 펼쳐진 바다
-        const water = new THREE.Mesh(new THREE.PlaneGeometry(200, 56), new THREE.MeshStandardMaterial({ color: 0x1f7ab8, roughness: 0.22, metalness: 0.25 }));
-        water.rotation.x = -Math.PI / 2; water.position.set(0, 0.02, -44); water.receiveShadow = true; envGroup.add(water);
-        const foam = new THREE.Mesh(new THREE.PlaneGeometry(200, 1.6), new THREE.MeshBasicMaterial({ color: 0xeaf8ff, transparent: true, opacity: 0.7 }));
-        foam.rotation.x = -Math.PI / 2; foam.position.set(0, 0.03, -16.2); envGroup.add(foam);
-        for (const [x, z] of [[-9, -13], [10, -13], [-9, 0], [10, 0]]) envBox(0.5, 8.5, 0.5, '#d9c08a', x + 0.5, 4.25, z + 0.5);
-        const roof = envBox(22, 0.4, 16, '#f2ead8', 0.5, 8.8, -6); roof.rotation.x = 0.06;
-        const back = makeCurtain(19, 6.4, '#bfe4f2'); back.position.set(0.5, 5.1, -12.6); envGroup.add(back);
-        for (const [x, z] of [[-16, -6], [18, -4], [-19, 12], [20, 14], [-13, 20]]) makePalm(x, z);
+        const water = new THREE.Mesh(new THREE.PlaneGeometry(220, 60), new THREE.MeshStandardMaterial({ color: 0x1f7ab8, roughness: 0.22, metalness: 0.25 }));
+        water.rotation.x = -Math.PI / 2; water.position.set(0, 0.02, -46); water.receiveShadow = true; envGroup.add(water);
+        // 밀려오는 파도 거품
+        const foams = [];
+        for (let i = 0; i < 3; i++) {
+          const foam = new THREE.Mesh(new THREE.PlaneGeometry(220, 1.4 - i * 0.3), new THREE.MeshBasicMaterial({ color: 0xeaf8ff, transparent: true, opacity: 0.65 - i * 0.15 }));
+          foam.rotation.x = -Math.PI / 2; foam.position.set(0, 0.035, -16.5 - i * 3); envGroup.add(foam); foams.push(foam);
+        }
+        envAnims.push(t => { foams.forEach((f, i) => { f.position.z = -16.5 - i * 3 + Math.sin(t * 0.5 + i * 1.4) * 1.4; f.material.opacity = (0.5 - i * 0.12) + 0.2 * Math.sin(t * 0.5 + i); }); });
+        // 축제 깃발 (양쪽 대나무 기둥 + 만국기)
+        const poleL = envBox(0.22, 6.6, 0.22, '#d9c08a', -8.6, 3.3, -0.4);
+        const poleR = envBox(0.22, 6.6, 0.22, '#d9c08a', 10.6, 3.3, -0.4);
+        void poleL; void poleR;
+        const flagCols = ['#ff5a4e', '#ffe14d', '#5ad06a', '#4aa3ff', '#b06aff', '#ff9d3b'];
+        const flags = [];
+        for (let i = 0; i <= 12; i++) {
+          const u = i / 12;
+          const x = -8.6 + u * 19.2;
+          const y = 6.4 - Math.sin(u * Math.PI) * 0.9;
+          const f = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.5), new THREE.MeshStandardMaterial({ color: flagCols[i % 6], side: THREE.DoubleSide, roughness: 0.8 }));
+          f.position.set(x, y - 0.3, -0.4); envGroup.add(f); flags.push(f);
+        }
+        envAnims.push(t => flags.forEach((f, i) => { f.rotation.y = Math.sin(t * 2 + i) * 0.35; }));
+        for (const [x, z] of [[-14, -8], [16, -6], [-18, 10], [19, 12], [-12, 20]]) makePalm(x, z);
+        // 파라솔
+        for (const [x, z, c] of [[13, 8, '#e85555'], [-13, 12, '#4aa3ff']]) {
+          envGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 8), envMat('#eee')).translateX(x).translateY(1.2).translateZ(z));
+          const top = new THREE.Mesh(new THREE.ConeGeometry(1.4, 0.6, 10), envMat(c, { side: THREE.DoubleSide }));
+          top.position.set(x, 2.5, z); top.castShadow = true; envGroup.add(top);
+        }
         const rock = new THREE.Mesh(new THREE.SphereGeometry(1.1, 8, 6), envMat('#9a9a9a', { flatShading: true }));
-        rock.scale.set(1, 0.55, 0.8); rock.position.set(14, 0.3, 18); rock.castShadow = true; envGroup.add(rock);
+        rock.scale.set(1, 0.55, 0.8); rock.position.set(15, 0.3, 18); rock.castShadow = true; envGroup.add(rock);
       } else {
-        // 우주: 달 표면 + 별 + 행성
+        // 우주 — 달 표면 + 크레이터 + 우주기지 구조물
         makeFloor('#5a5d68');
-        for (const [cx, cz, r] of [[-12, 10, 2.4], [15, 16, 3.2], [8, -18, 1.8], [-18, -14, 2.8], [-6, 22, 1.5]]) {
+        for (const [cx, cz, r] of [[-12, 10, 2.4], [15, 16, 3.2], [8, -20, 1.8], [-19, -14, 2.8], [-6, 22, 1.5], [20, -6, 2.2]]) {
           const crater = new THREE.Mesh(new THREE.CircleGeometry(r, 20), envMat('#43454f'));
           crater.rotation.x = -Math.PI / 2; crater.position.set(cx, 0.005, cz); crater.receiveShadow = true; envGroup.add(crater);
           const rim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.16, 6, 22), envMat('#6a6d78'));
@@ -276,21 +336,45 @@ function outdoorPreset(theme) {
         const earth = new THREE.Mesh(new THREE.SphereGeometry(4.2, 24, 18), envMat('#3a7fd0', { emissive: 0x1a3f70, emissiveIntensity: 0.5, roughness: 0.6 }));
         earth.position.set(-26, 20, -42); envGroup.add(earth);
         const land = new THREE.Mesh(new THREE.SphereGeometry(4.24, 12, 9), envMat('#4fae5f', { transparent: true, opacity: 0.6, emissive: 0x2a6a35, emissiveIntensity: 0.4 }));
-        land.position.copy(earth.position); land.rotation.y = 1.2; envGroup.add(land);
+        land.position.copy(earth.position); envGroup.add(land);
         const saturn = new THREE.Mesh(new THREE.SphereGeometry(2.4, 20, 14), envMat('#d8a860', { emissive: 0x6a4a20, emissiveIntensity: 0.4 }));
         saturn.position.set(24, 15, -36); envGroup.add(saturn);
         const ring = new THREE.Mesh(new THREE.TorusGeometry(3.6, 0.5, 6, 30), envMat('#e8cf9a', { emissive: 0x7a6030, emissiveIntensity: 0.35 }));
         ring.position.copy(saturn.position); ring.rotation.x = Math.PI / 2.4; ring.scale.z = 0.25; envGroup.add(ring);
-        for (const [x, z] of [[-9, -13], [10, -13], [-9, 0], [10, 0]]) envBox(0.5, 8.5, 0.5, '#8a929e', x + 0.5, 4.25, z + 0.5, { metalness: 0.6, roughness: 0.35 });
-        makeBatten(-9, 10, 8.5, -12.5); makeBatten(-9, 10, 8.5, -0.5);
+        envAnims.push((t, dt) => { earth.rotation.y += dt * 0.06; land.rotation.y += dt * 0.06; saturn.rotation.y += dt * 0.1; });
+        // 우주기지: 돔 거주구 + 모듈 + 안테나
+        const domeBase = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.8, 1.1, 16), envMat('#8a929e', { metalness: 0.6, roughness: 0.35 }));
+        domeBase.position.set(-13, 0.55, -17); domeBase.castShadow = true; envGroup.add(domeBase);
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(2.6, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x9fd0ff, transparent: true, opacity: 0.3, roughness: 0.1, metalness: 0.2, side: THREE.DoubleSide }));
+        dome.position.set(-13, 1.1, -17); envGroup.add(dome);
+        const tube = envBox(4.5, 1.1, 1.2, '#8a929e', -9.2, 0.55, -16.4, { metalness: 0.6, roughness: 0.35 });
+        tube.rotation.y = 0.2;
+        const mod = envBox(3.2, 1.8, 2.2, '#9aa2ae', 14, 0.9, -16, { metalness: 0.6, roughness: 0.35 });
+        void mod;
+        for (const wx of [13, 14.6]) { const win = envBox(0.7, 0.5, 0.06, '#ffdf8a', wx, 1.1, -14.85, { emissive: 0xffc94a, emissiveIntensity: 0.8 }); void win; }
+        envGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 5.5, 8), envMat('#b9c2cc', { metalness: 0.7 })).translateX(16.2).translateY(2.75).translateZ(-17));
+        const dish = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2.6), envMat('#d5dae2', { metalness: 0.5, side: THREE.DoubleSide }));
+        dish.position.set(16.2, 5.6, -17); dish.rotation.x = -0.9; envGroup.add(dish);
+        // 착륙장 링 표시
+        const pad = new THREE.Mesh(new THREE.TorusGeometry(7.3, 0.14, 6, 40), envMat('#ffd54a', { emissive: 0x7a5f00, emissiveIntensity: 0.5 }));
+        pad.rotation.x = Math.PI / 2; pad.position.set(0.5, 0.04, -6.5); envGroup.add(pad);
+        makeBatten(-6, 8, 8.4, -12.5); makeBatten(-6, 8, 8.4, -0.8);
       }
-      makeBatten(-8, 9, 8.2, -3); makeBatten(-8, 9, 8.2, -9);
     },
     starter() {
-      const top = theme === 'space' ? 'metal' : 'wood';
-      const base = theme === 'space' ? 'stone' : 'darkwood';
-      platform(-8, 9, -12, -1, top, base);
-      for (const x of [-1, 0, 1, 2]) { addBlock(x, 0, 0, base); addBlock(x, 1, 0, top, 'slab'); }
+      if (theme === 'space') {
+        // 원형 금속 착륙 패드 무대
+        for (let x = -7; x <= 8; x++) for (let z = -14; z <= 1; z++) {
+          const d = Math.hypot(x + 0.5 - 0.5, z + 0.5 - (-6.5));
+          if (d <= 6.4) { addBlock(x, 0, z, 'stone'); addBlock(x, 1, z, 'metal'); }
+        }
+      } else if (theme === 'sea') {
+        platform(-8, 9, -12, -1, 'wood', 'darkwood');
+        for (const x of [-1, 0, 1, 2]) { addBlock(x, 0, 0, 'darkwood'); addBlock(x, 1, 0, 'wood', 'slab'); }
+      } else {
+        platform(-7, 8, -11, -2, 'wood', 'darkwood');
+        for (const x of [-1, 0, 1, 2]) { addBlock(x, 0, -1, 'darkwood'); addBlock(x, 1, -1, 'wood', 'slab'); }
+      }
     },
     seats() {
       const list = [];
@@ -302,6 +386,7 @@ function outdoorPreset(theme) {
 
 const PRESETS = {
   proscenium: {
+    // 액자형: 아치·한쪽 객석·윙·막·배튼·배경막
     name: '프로시니엄 무대', emoji: '🏛️', desc: '액자 틀 너머로 보는 가장 익숙한 극장',
     stageBounds: { x0: -10, x1: 11, z0: -14, z1: -1, y: 2 }, stageCenter: new THREE.Vector3(0.5, 2, -7),
     gridY: 10.2, env: { bg: 0x141519, hemiSky: 0xbfd4ff },
@@ -332,15 +417,19 @@ const PRESETS = {
     },
   },
   thrust: {
+    // 3면 객석·낮은 배경: 시야를 가리는 높은 장치를 줄인다
     name: '돌출 무대', emoji: '📐', desc: '객석 속으로 쑥! 관객이 3면을 둘러싸요',
     stageBounds: { x0: -6, x1: 7, z0: -14, z1: 7, y: 2 }, stageCenter: new THREE.Vector3(0.5, 2, -2),
     gridY: 9.5, env: { bg: 0x15161b, hemiSky: 0xbfd4ff },
     build() {
       makeRoom(66, 18, '#1b1c22'); makeFloor('#2a2b31');
-      const cyc = new THREE.Mesh(new THREE.PlaneGeometry(18, 8.5), envMat('#d8e8f8')); cyc.position.set(0.5, 6.2, -15.4); cyc.receiveShadow = true; envGroup.add(cyc);
-      const cl = makeCurtain(3.6, 6.8, '#24437c'); cl.position.set(-6.8, 5.4, -14.6); envGroup.add(cl);
-      const cr = makeCurtain(3.6, 6.8, '#24437c'); cr.position.set(7.8, 5.4, -14.6); envGroup.add(cr);
-      for (const z of [-10, -4, 2]) makeBatten(-10, 11, 9.5, z); makeBatten(-10, 11, 9.5, 6);
+      // 낮은 배경벽 + 배우 등장용 출입구 두 곳
+      envBox(6.5, 4.6, 0.8, '#262b3a', -4.9, 2.3, -15.2);
+      envBox(6.5, 4.6, 0.8, '#262b3a', 5.9, 2.3, -15.2);
+      envBox(3.2, 0.9, 0.8, '#262b3a', 0.5, 4.15, -15.2); // 출입구 위 상인방
+      const l1 = makeCurtain(2.4, 4.2, '#24437c'); l1.position.set(-8.8, 2.9, -14.4); l1.rotation.y = Math.PI / 3; envGroup.add(l1);
+      const l2 = makeCurtain(2.4, 4.2, '#24437c'); l2.position.set(9.8, 2.9, -14.4); l2.rotation.y = -Math.PI / 3; envGroup.add(l2);
+      for (const z of [-10, -4, 2, 6]) makeBatten(-10, 11, 9.5, z);
     },
     starter() { platform(-9, 9, -14, -7, 'wood', 'darkwood'); platform(-5, 6, -7, 6, 'wood', 'darkwood'); },
     seats() {
@@ -354,34 +443,55 @@ const PRESETS = {
     },
   },
   arena: {
-    name: '원형 무대', emoji: '⭕', desc: '360도 관객이 둘러싸는 무대',
+    // 사방(360도) 객석: 배경막 없음, 낮은 소품과 천장 조명 중심, 등장 통로(보메토리)
+    name: '사방 객석 무대', emoji: '⭕', desc: '관객이 360도로 둘러싸요 (원형 플랫폼 예시)',
     stageBounds: { x0: -7, x1: 8, z0: -11, z1: 4, y: 1 }, stageCenter: new THREE.Vector3(0.5, 1, -3.5),
-    gridY: 10, env: { bg: 0x141419, hemiSky: 0xcfd8ff },
+    gridY: 9.2, env: { bg: 0x141419, hemiSky: 0xcfd8ff }, freeFront: true,
     build() {
       makeRoom(64, 17, '#191a20'); makeFloor('#26272d');
+      // 천장 조명 그리드: 십자 배튼 + 원형 트러스
       makeBatten(-10, 11, 10, -3.5);
       const b2 = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 21, 8), envMat('#111318', { metalness: 0.5 })); b2.rotation.x = Math.PI / 2; b2.position.set(0.5, 10, -3.5); envGroup.add(b2);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(8, 0.09, 8, 40), envMat('#111318', { metalness: 0.5 })); ring.rotation.x = Math.PI / 2; ring.position.set(0.5, 9.2, -3.5); envGroup.add(ring);
+      for (const r of [5.5, 8]) {
+        const ringT = new THREE.Mesh(new THREE.TorusGeometry(r, 0.09, 8, 40), envMat('#111318', { metalness: 0.5 }));
+        ringT.rotation.x = Math.PI / 2; ringT.position.set(0.5, 9.2, -3.5); envGroup.add(ringT);
+      }
     },
     starter() {
       for (let x = -8; x <= 9; x++) for (let z = -12; z <= 5; z++) { const dx = x + 0.5 - 0.5, dz = z + 0.5 - (-3.5); if (Math.hypot(dx, dz) <= 7.2) addBlock(x, 0, z, 'wood'); }
     },
     seats() {
+      // 네 방향 통로(보메토리)를 남기고 360도 배치
       const list = []; const cx = 0.5, cz = -3.5;
-      for (let ring = 0; ring < 3; ring++) { const r = 10 + ring * 1.9; const n = Math.round(r * 3.4); for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; list.push({ x: cx + Math.cos(a) * r, y: 0, z: cz + Math.sin(a) * r, rot: -a - Math.PI / 2 }); } }
+      for (let ring = 0; ring < 3; ring++) {
+        const r = 10 + ring * 1.9; const n = Math.round(r * 3.4);
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          const m = a % (Math.PI / 2);
+          if (m < 0.12 || m > Math.PI / 2 - 0.12) continue;
+          list.push({ x: cx + Math.cos(a) * r, y: 0, z: cz + Math.sin(a) * r, rot: -a - Math.PI / 2 });
+        }
+      }
       return list;
     },
   },
   blackbox: {
-    name: '블랙박스', emoji: '⬛', desc: '텅 빈 검은 방 — 상상력이 곧 무대!',
+    // 가변형 공연 공간: 빈 검은 방 + 조명 그리드 + 이동식 플랫폼·객석
+    name: '블랙박스', emoji: '⬛', desc: '무대와 객석을 마음대로 배치하는 빈 공간',
     stageBounds: { x0: -8, x1: 9, z0: -10, z1: 3, y: 0 }, stageCenter: new THREE.Vector3(0.5, 0, -3.5),
-    gridY: 8.6, env: { bg: 0x0d0d10, hemiSky: 0x9aa4c0 },
+    gridY: 8.6, env: { bg: 0x0d0d10, hemiSky: 0x9aa4c0 }, freeFront: true,
     build() {
       makeRoom(44, 13, '#101014'); makeFloor('#1a1a1e');
       for (const z of [-10, -5, 0, 5]) makeBatten(-12, 13, 8.6, z);
       for (const x of [-9, -3, 3, 9]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 20, 8), envMat('#111318', { metalness: 0.5 })); b.rotation.x = Math.PI / 2; b.position.set(x + 0.5, 8.6, -2.5); envGroup.add(b); }
     },
-    starter() { addPropRaw('chair', -3.5, 0, 4.5, Math.PI, 1); addPropRaw('chair', -1.5, 0, 4.8, Math.PI, 2); addPropRaw('chair', 0.8, 0, 4.6, Math.PI, 3); addPropRaw('chair', 2.8, 0, 4.9, Math.PI, 4); },
+    starter() {
+      // 이동식 플랫폼 두 개 + 두 방향으로 놓인 이동식 객석 → "마음대로 바꿔 보세요"
+      platform(-7, -5, -8, -6, 'blackdeck', 'blackdeck', 1);
+      platform(4, 6, -3, -1, 'blackdeck', 'blackdeck', 1);
+      for (let i = 0; i < 5; i++) addPropRaw('chair', -4 + i * 1.4, 0, 4.5, Math.PI, i);
+      for (let i = 0; i < 4; i++) addPropRaw('chair', -8.5, 0, -3 + i * 1.4, Math.PI / 2, i);
+    },
     seats: () => [],
   },
   outdoor_forest: outdoorPreset('forest'),
@@ -394,24 +504,27 @@ function stageFrame() {
   return { cx: (b.x0 + b.x1) / 2, cz: (b.z0 + b.z1) / 2, cy: b.y, w: b.x1 - b.x0, d: b.z1 - b.z0, gridY: p.gridY, backZ: b.z0, frontZ: b.z1, fohZ: b.z1 + 13 };
 }
 function buildEnvironment(id) {
-  envGroup.clear(); seatGroup.clear();
+  envGroup.clear(); seatGroup.clear(); envAnims = [];
   const p = PRESETS[id];
   envLightCfg = { ...envLightCfg, ...p.env };
   hemi.color.set(p.env.hemiSky);
+  scene.fog = p.env.fog ? new THREE.Fog(p.env.fog[0], p.env.fog[1], p.env.fog[2]) : null;
   p.build();
   buildSeats(p.seats());
   seatGroup.visible = state.seats;
   buildZoneOverlay();
   applyHouseLights();
+  ambient.set(id);
   document.getElementById('stageSelect').value = id;
 }
 function layStarter(id) { PRESETS[id].starter(); }
 
-// ---------------- 무대 구역 오버레이 ----------------
+// ---------------- 무대 구역 오버레이 (배우 기준 SR/SL) ----------------
 let zoneMesh = null;
 function buildZoneOverlay() {
   if (zoneMesh) { scene.remove(zoneMesh); zoneMesh = null; }
-  const b = PRESETS[proj.preset]?.stageBounds; if (!b) return;
+  const preset = PRESETS[proj.preset];
+  const b = preset?.stageBounds; if (!b) return;
   const w = b.x1 - b.x0, d = b.z1 - b.z0;
   const c = document.createElement('canvas'); const S = 64; c.width = w * S; c.height = d * S;
   const ctx = c.getContext('2d');
@@ -420,19 +533,73 @@ function buildZoneOverlay() {
   const cw = c.width / 3, ch = c.height / 3;
   for (let i = 1; i < 3; i++) { ctx.beginPath(); ctx.moveTo(cw * i, 0); ctx.lineTo(cw * i, c.height); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, ch * i); ctx.lineTo(c.width, ch * i); ctx.stroke(); }
   ctx.strokeRect(2, 2, c.width - 4, c.height - 4);
-  const rows = [['업 하수', '업 센터', '업 상수'], ['중앙 하수', '★ 무대 중앙', '중앙 상수'], ['다운 하수', '다운 센터', '다운 상수']];
-  ctx.fillStyle = '#ffe89a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `bold ${S * 0.42}px sans-serif`;
-  for (let r = 0; r < 3; r++) for (let col = 0; col < 3; col++) ctx.fillText(rows[r][col], cw * col + cw / 2, ch * r + ch / 2);
-  ctx.font = `bold ${S * 0.34}px sans-serif`; ctx.fillStyle = '#9fd8ff';
-  ctx.fillText('▲ 업스테이지 (무대 뒤쪽)', c.width / 2, S * 0.35);
-  ctx.fillText('▼ 다운스테이지 (객석 쪽)', c.width / 2, c.height - S * 0.35);
-  ctx.save(); ctx.translate(S * 0.35, c.height / 2); ctx.rotate(-Math.PI / 2); ctx.fillText('하수 (객석에서 왼쪽)', 0, 0); ctx.restore();
-  ctx.save(); ctx.translate(c.width - S * 0.35, c.height / 2); ctx.rotate(Math.PI / 2); ctx.fillText('상수 (객석에서 오른쪽)', 0, 0); ctx.restore();
+  // 캔버스 위 = 윗무대(업스테이지), 왼쪽(-X) = 배우 기준 무대 오른쪽(SR) → 관객 화면에서 왼쪽에 보인다
+  const rows = [
+    [['윗무대 오른쪽', 'USR'], ['윗무대 중앙', 'USC'], ['윗무대 왼쪽', 'USL']],
+    [['무대 오른쪽', 'SR'], ['★ 무대 중앙', 'CS'], ['무대 왼쪽', 'SL']],
+    [['아랫무대 오른쪽', 'DSR'], ['아랫무대 중앙', 'DSC'], ['아랫무대 왼쪽', 'DSL']],
+  ];
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (let r = 0; r < 3; r++) for (let col = 0; col < 3; col++) {
+    const [ko, en] = rows[r][col];
+    const x = cw * col + cw / 2, y = ch * r + ch / 2;
+    ctx.fillStyle = '#ffe89a'; ctx.font = `bold ${S * 0.36}px sans-serif`;
+    ctx.fillText(ko, x, y - S * 0.22);
+    ctx.fillStyle = '#ffd54a'; ctx.font = `bold ${S * 0.3}px sans-serif`;
+    ctx.fillText(en, x, y + S * 0.24);
+  }
+  ctx.font = `bold ${S * 0.3}px sans-serif`; ctx.fillStyle = '#9fd8ff';
+  ctx.fillText('▲ 윗무대 (업스테이지) — 무대 뒤쪽', c.width / 2, S * 0.32);
+  ctx.fillText('▼ 아랫무대 (다운스테이지) — 객석 쪽', c.width / 2, c.height - S * (preset.freeFront ? 0.9 : 0.32));
+  if (preset.freeFront) {
+    ctx.font = `${S * 0.24}px sans-serif`; ctx.fillStyle = '#ffe0a0';
+    ctx.fillText('※ 이 무대는 정면이 정해져 있지 않아요 — 아래쪽을 이 앱의 기준 정면(객석)으로 표시했어요', c.width / 2, c.height - S * 0.35);
+  }
+  ctx.save(); ctx.translate(S * 0.32, c.height / 2); ctx.rotate(-Math.PI / 2); ctx.fillStyle = '#9fd8ff'; ctx.font = `bold ${S * 0.28}px sans-serif`;
+  ctx.fillText('무대 오른쪽 SR (배우 기준)', 0, 0); ctx.restore();
+  ctx.save(); ctx.translate(c.width - S * 0.32, c.height / 2); ctx.rotate(Math.PI / 2); ctx.fillStyle = '#9fd8ff'; ctx.font = `bold ${S * 0.28}px sans-serif`;
+  ctx.fillText('무대 왼쪽 SL (배우 기준)', 0, 0); ctx.restore();
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   zoneMesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
   zoneMesh.rotation.x = -Math.PI / 2; zoneMesh.position.set((b.x0 + b.x1) / 2, b.y + 0.03, (b.z0 + b.z1) / 2);
   zoneMesh.visible = state.zones; zoneMesh.renderOrder = 5; scene.add(zoneMesh);
 }
+
+// ---------------- 환경 소리 (BGM) ----------------
+const AMBIENT_SRC = { outdoor_forest: 'audio/forest.mp3', outdoor_sea: 'audio/ocean.mp3', outdoor_space: 'audio/space.mp3' };
+const ambient = {
+  el: new Audio(), key: null, vol: 0.5, muted: false, pending: false,
+  set(id) {
+    const key = AMBIENT_SRC[id] ? id : null;
+    if (key === this.key) { this.syncUI(); return; } // 같은 환경/장면 전환 → 음악 이어서
+    this.key = key;
+    if (!key) { this.el.pause(); this.syncUI(); return; }
+    this.el.src = AMBIENT_SRC[key];
+    this.el.loop = true;
+    this.el.volume = this.muted ? 0 : this.vol;
+    this.tryPlay();
+    this.syncUI();
+  },
+  tryPlay() {
+    if (!this.key) return;
+    this.el.play().then(() => { this.pending = false; }).catch(() => { this.pending = true; });
+  },
+  setVol(v) { this.vol = v; this.el.volume = this.muted ? 0 : v; },
+  setMuted(m) { this.muted = m; this.el.volume = m ? 0 : this.vol; if (!m && this.pending) this.tryPlay(); this.syncUI(); },
+  syncUI() {
+    const pill = document.getElementById('ambPill');
+    pill.classList.toggle('hidden', !this.key);
+    pill.textContent = this.muted ? '🔇' : '🔊';
+    pill.classList.toggle('muted', this.muted);
+    const sw = document.getElementById('ambMute');
+    sw.classList.toggle('on', !this.muted);
+    sw.setAttribute('aria-checked', String(!this.muted));
+  },
+};
+document.addEventListener('pointerdown', () => { if (ambient.pending && !ambient.muted) ambient.tryPlay(); }, true);
+document.getElementById('ambPill').addEventListener('click', () => ambient.setMuted(!ambient.muted));
+document.getElementById('ambMute').addEventListener('click', () => ambient.setMuted(!ambient.muted));
+document.getElementById('ambVol').addEventListener('input', ev => ambient.setVol(ev.target.value / 100));
 
 // ---------------- 조명 기구 ----------------
 const fixtureBodyGeo = new THREE.CylinderGeometry(0.16, 0.24, 0.55, 10);
@@ -445,6 +612,7 @@ function createLight(data, record = true) {
   const Lg = {
     id: data.id ?? lightSeq++, type: data.type, color: data.color ?? def.color,
     intensity: data.intensity ?? def.intensity, angle: data.angle ?? def.angle, on: data.on ?? true,
+    presetId: data.presetId ?? null, name: data.name ?? null, hide: data.hide ?? false,
     pos: new THREE.Vector3().fromArray(data.pos), target: new THREE.Vector3().fromArray(data.target), phase: Math.random() * Math.PI * 2,
   };
   lightSeq = Math.max(lightSeq, Lg.id + 1);
@@ -462,6 +630,7 @@ function createLight(data, record = true) {
   const cone = new THREE.Mesh(makeConeGeo(Lg), new THREE.MeshBasicMaterial({ color: Lg.color, transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
   cone.userData = { kind: 'beam' }; cone.raycast = () => {}; group.add(cone);
   Object.assign(Lg, { group, body, lens, spot, cone, targetObj });
+  group.visible = !Lg.hide;
   lightGroup.add(group); lights.push(Lg);
   orientLight(Lg); updateLightVisual(Lg);
   if (record) pushUndo({ undo: () => deleteLight(Lg, false) });
@@ -479,7 +648,6 @@ function orientLight(Lg) {
   Lg.body.lookAt(Lg.pos.clone().add(_dir));
   Lg.cone.quaternion.setFromUnitVectors(_down, _dir);
 }
-// 빔이 길수록(팔로우 스팟 등) 은은하게 — 화면을 덮는 거대한 콘을 막는다
 function coneOpacity(Lg) {
   const base = state.perform ? 0.17 : 0.09;
   const len = Math.max(1, Lg.pos.distanceTo(Lg.target));
@@ -494,6 +662,7 @@ function updateLightVisual(Lg) {
   Lg.cone.geometry.dispose(); Lg.cone.geometry = makeConeGeo(Lg);
   Lg.cone.visible = Lg.on && state.cueMul > 0.02;
   Lg.cone.material.opacity = coneOpacity(Lg);
+  Lg.group.visible = !Lg.hide;
   orientLight(Lg);
 }
 function applyCueScale() {
@@ -509,10 +678,11 @@ function deleteLight(Lg, record = true) {
   if (state.selected && state.selected.ref === Lg) clearSelection();
   if (record) { const data = serializeLight(Lg); pushUndo({ undo: () => createLight(data, false) }); }
 }
-const serializeLight = (Lg) => ({ id: Lg.id, type: Lg.type, color: Lg.color, intensity: Lg.intensity, angle: Lg.angle, on: Lg.on, pos: Lg.pos.toArray(), target: Lg.target.toArray() });
+const serializeLight = (Lg) => ({ id: Lg.id, type: Lg.type, color: Lg.color, intensity: Lg.intensity, angle: Lg.angle, on: Lg.on, presetId: Lg.presetId, name: Lg.name, hide: Lg.hide, pos: Lg.pos.toArray(), target: Lg.target.toArray() });
 
 function placeLightAt(point) {
   const type = state.lightType;
+  const fr = stageFrame();
   const center = PRESETS[proj.preset]?.stageCenter ?? new THREE.Vector3(0, 2, -6);
   let pos, target = point.clone();
   if (type === 'follow') { pos = new THREE.Vector3(point.x > 0.5 ? 7 : -6, 9.5, 15); }
@@ -521,37 +691,71 @@ function placeLightAt(point) {
     const toCenter = new THREE.Vector3().subVectors(center, point).setY(0);
     if (toCenter.lengthSq() < 0.5) toCenter.set(0, 0, -1); toCenter.normalize();
     target = pos.clone().add(toCenter.multiplyScalar(2.5)).add(new THREE.Vector3(0, 6, 0));
-  } else { pos = new THREE.Vector3(point.x, 10.2, point.z + (type === 'wash' ? 3 : 1.2)); }
+  } else { pos = new THREE.Vector3(point.x, fr.gridY + 1.6, point.z + (type === 'wash' ? 3 : 1.2)); }
   const Lg = createLight({ type, pos: pos.toArray(), target: target.toArray() });
   if (Lg) { toast(`${LIGHT_TYPES[type].emoji} ${LIGHT_TYPES[type].name}을(를) 달았어요!`); blip(660); selectElement('light', Lg); markDirty(); }
 }
 
-// 조명 세트 — confirm 없이 적용하고, 되돌리기로 복구 가능하게
+// 조명 세트 — 토글 방식: 같은 세트 다시 클릭 = 끄기, 다른 세트 = 교체 (직접 단 조명은 유지)
 function applyLightPreset(preset) {
   const prev = lights.map(serializeLight);
-  for (const Lg of [...lights]) deleteLight(Lg, false);
-  const fr = stageFrame();
-  for (const cfg of preset.build(fr)) createLight(cfg, false);
-  pushUndo({ undo: () => { for (const Lg of [...lights]) deleteLight(Lg, false); for (const d of prev) createLight(d, false); renderElementList(); } });
+  const prevActive = state.activePreset;
+  const turningOff = state.activePreset === preset.id;
+  for (const Lg of [...lights]) if (Lg.presetId) deleteLight(Lg, false);
+  if (!turningOff) {
+    const fr = stageFrame();
+    for (const cfg of preset.build(fr)) { const l = createLight(cfg, false); if (l) l.presetId = preset.id; }
+    state.activePreset = preset.id;
+    toast(`${preset.emoji} ${preset.name} 조명을 켰어요! (한 번 더 누르면 꺼져요)`);
+  } else {
+    state.activePreset = null;
+    toast(`${preset.emoji} ${preset.name} 조명을 껐어요`);
+  }
+  pushUndo({ undo: () => {
+    for (const Lg of [...lights]) deleteLight(Lg, false);
+    for (const d of prev) createLight(d, false);
+    state.activePreset = prevActive;
+    refreshPresetButtons(); renderElementList();
+  } });
+  refreshPresetButtons();
   markDirty(); renderElementList();
-  toast(`${preset.emoji} ${preset.name} 조명을 켰어요! (되돌리기 가능)`);
   blip(720);
+}
+function refreshPresetButtons() {
+  document.querySelectorAll('#presetGrid .preset-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === state.activePreset));
 }
 
 // ---------------- 소품 ----------------
-function addPropRaw(type, x, y, z, rot = 0, variant = 0, record = false) {
-  const P = { id: uid(), type, rot, variant, pos: new THREE.Vector3(x, y, z), group: buildProp(type, variant) };
-  P.group.position.copy(P.pos); P.group.rotation.y = rot;
+function addPropRaw(type, x, y, z, rot = 0, variant = 0, record = false, extra = {}) {
+  const P = {
+    id: uid(), type, rot, variant,
+    scale: extra.scale ?? 1, cfg: extra.cfg ?? null, name: extra.name ?? null, hide: extra.hide ?? false,
+    pos: new THREE.Vector3(x, y, z), group: null,
+  };
+  P.group = buildProp(type, variant, P.cfg);
+  P.group.position.copy(P.pos); P.group.rotation.y = rot; P.group.scale.setScalar(P.scale);
+  P.group.visible = !P.hide;
   P.group.traverse(o => { o.userData = { kind: 'prop', propId: P.id }; });
   propGroup.add(P.group); props.push(P);
   if (record) pushUndo({ undo: () => deleteProp(P, false) });
   return P;
 }
+function rebuildPropGroup(P) {
+  propGroup.remove(P.group);
+  P.group = buildProp(P.type, P.variant, P.cfg);
+  P.group.position.copy(P.pos); P.group.rotation.y = P.rot; P.group.scale.setScalar(P.scale);
+  P.group.visible = !P.hide;
+  P.group.traverse(o => { o.userData = { kind: 'prop', propId: P.id }; });
+  propGroup.add(P.group);
+}
 function deleteProp(P, record = true) {
   const i = props.indexOf(P); if (i < 0) return;
   props.splice(i, 1); propGroup.remove(P.group);
   if (state.selected && state.selected.ref === P) clearSelection();
-  if (record) { const d = { type: P.type, x: P.pos.x, y: P.pos.y, z: P.pos.z, rot: P.rot, variant: P.variant }; pushUndo({ undo: () => addPropRaw(d.type, d.x, d.y, d.z, d.rot, d.variant) }); }
+  if (record) {
+    const d = { type: P.type, x: P.pos.x, y: P.pos.y, z: P.pos.z, rot: P.rot, variant: P.variant, extra: { scale: P.scale, cfg: P.cfg, name: P.name, hide: P.hide } };
+    pushUndo({ undo: () => addPropRaw(d.type, d.x, d.y, d.z, d.rot, d.variant, false, d.extra) });
+  }
 }
 
 // ---------------- 이미지 (2D 입간판) ----------------
@@ -576,11 +780,11 @@ function buildStandee(tex, aspect, scale) {
   return g;
 }
 function addImageRaw(data, record = false) {
-  const I = { id: uid(), src: data.src, aspect: data.aspect, scale: data.scale ?? 1, rot: data.rot ?? 0, pos: new THREE.Vector3(data.x, data.y, data.z), group: null, tex: data.tex };
+  const I = { id: uid(), src: data.src, aspect: data.aspect, scale: data.scale ?? 1, rot: data.rot ?? 0, name: data.name ?? null, hide: data.hide ?? false, pos: new THREE.Vector3(data.x, data.y, data.z), group: null, tex: data.tex };
   const build = (tex, aspect) => {
     I.tex = tex; I.aspect = aspect;
     I.group = buildStandee(tex, aspect, I.scale);
-    I.group.position.copy(I.pos); I.group.rotation.y = I.rot;
+    I.group.position.copy(I.pos); I.group.rotation.y = I.rot; I.group.visible = !I.hide;
     I.group.traverse(o => { o.userData = { kind: 'image', imageId: I.id }; });
     imageGroup.add(I.group);
   };
@@ -593,7 +797,7 @@ function addImageRaw(data, record = false) {
 function rebuildImage(I) {
   if (I.group) imageGroup.remove(I.group);
   I.group = buildStandee(I.tex, I.aspect, I.scale);
-  I.group.position.copy(I.pos); I.group.rotation.y = I.rot;
+  I.group.position.copy(I.pos); I.group.rotation.y = I.rot; I.group.visible = !I.hide;
   I.group.traverse(o => { o.userData = { kind: 'image', imageId: I.id }; });
   imageGroup.add(I.group);
 }
@@ -601,10 +805,14 @@ function deleteImage(I, record = true) {
   const i = images.indexOf(I); if (i < 0) return;
   images.splice(i, 1); if (I.group) imageGroup.remove(I.group);
   if (state.selected && state.selected.ref === I) clearSelection();
-  if (record) { const d = { src: I.src, aspect: I.aspect, scale: I.scale, rot: I.rot, x: I.pos.x, y: I.pos.y, z: I.pos.z, tex: I.tex }; pushUndo({ undo: () => addImageRaw(d, false) }); }
+  if (record) { const d = { src: I.src, aspect: I.aspect, scale: I.scale, rot: I.rot, name: I.name, hide: I.hide, x: I.pos.x, y: I.pos.y, z: I.pos.z, tex: I.tex }; pushUndo({ undo: () => addImageRaw(d, false) }); }
 }
 
-// ---------------- 선택 & 클릭 삭제 ----------------
+// ---------------- 선택 & 편집 ----------------
+const selBox = new THREE.Mesh(cubeGeo, new THREE.MeshBasicMaterial({ color: 0xffd54a, wireframe: true, transparent: true, opacity: 0.9 }));
+selBox.visible = false; selBox.raycast = () => {}; selBox.scale.setScalar(1.04);
+scene.add(selBox);
+
 function setHL(obj, on) {
   obj.traverse(o => {
     if (!o.isMesh) return;
@@ -620,26 +828,165 @@ function fixtureHL(Lg, on) { Lg.body.material.emissive = new THREE.Color(on ? 0x
 
 function clearSelection() {
   const s = state.selected;
-  if (s) { if (s.kind === 'light') fixtureHL(s.ref, false); else setHL(s.ref.group, false); }
-  state.selected = null; state.retargeting = false;
-  hidePanel('lightPanel'); hidePanel('imgEditPanel');
+  if (s) {
+    if (s.kind === 'light') fixtureHL(s.ref, false);
+    else if (s.kind !== 'block' && s.ref.group) setHL(s.ref.group, false);
+  }
+  selBox.visible = false;
+  state.selected = null; state.retargeting = false; state.moveMode = false;
+  hidePanel('editPanel');
   renderElementList();
 }
+function sameBlock(a, b) { return a && b && a.x === b.x && a.y === b.y && a.z === b.z; }
 function selectElement(kind, ref) {
-  if (state.selected && state.selected.ref === ref) { deleteSelected(); return; }
+  if (state.selected && state.selected.kind === kind) {
+    if (kind === 'block' && sameBlock(state.selected.ref, ref)) return; // 블록은 다시 클릭해도 유지 (실수 방지)
+    if (kind !== 'block' && state.selected.ref === ref) { deleteSelected(); return; }
+  }
   clearSelection();
   state.selected = { kind, ref };
-  if (kind === 'light') { fixtureHL(ref, true); openLightPanel(ref); }
-  else { setHL(ref.group, true); if (kind === 'image') openImgPanel(ref); }
+  if (kind === 'light') fixtureHL(ref, true);
+  else if (kind === 'block') {
+    const b = blocks.get(keyOf(ref.x, ref.y, ref.z)); if (!b) { state.selected = null; return; }
+    selBox.geometry = b.shape === 'slab' ? slabGeo : cubeGeo;
+    selBox.position.set(ref.x + 0.5, ref.y + 0.5, ref.z + 0.5);
+    selBox.visible = true;
+  } else setHL(ref.group, true);
+  openEditPanel();
   renderElementList();
-  setHint('한 번 더 클릭하면 삭제돼요');
+  if (kind !== 'block') setHint('한 번 더 클릭하면 삭제 · 패널에서 이동·회전·복제할 수 있어요');
+  else setHint('🧱 블록 선택! 패널에서 다른 블록으로 바꾸거나 삭제할 수 있어요');
 }
 function deleteSelected() {
   const s = state.selected; if (!s) return;
   if (s.kind === 'light') { deleteLight(s.ref); toast('조명을 뗐어요'); }
   else if (s.kind === 'prop') { deleteProp(s.ref); toast('소품을 치웠어요'); }
   else if (s.kind === 'image') { deleteImage(s.ref); toast('이미지를 뺐어요'); }
+  else if (s.kind === 'block') { removeBlock(s.ref.x, s.ref.y, s.ref.z, true); toast('블록을 지웠어요'); }
   blip(320); markDirty(); renderElementList();
+}
+
+// ---------------- 통합 편집 패널 ----------------
+const ep = {
+  panel: document.getElementById('editPanel'), title: document.getElementById('epTitle'),
+  move: document.getElementById('epMove'), rotate: document.getElementById('epRotate'),
+  dup: document.getElementById('epDup'), del: document.getElementById('epDelete'),
+  scaleRow: document.getElementById('epScaleRow'), scale: document.getElementById('epScale'), scaleVal: document.getElementById('epScaleVal'),
+  lightSec: document.getElementById('epLightSec'), blockSec: document.getElementById('epBlockSec'), actorSec: document.getElementById('epActorSec'),
+};
+function elementDisplayName(kind, ref) {
+  if (ref.name) return ref.name;
+  if (kind === 'light') return `${LIGHT_TYPES[ref.type].name}`;
+  if (kind === 'prop') return PROP_INFO[ref.type]?.name ?? ref.type;
+  if (kind === 'image') return '내 이미지';
+  if (kind === 'block') return BLOCKS[blocks.get(keyOf(ref.x, ref.y, ref.z))?.type]?.name ?? '블록';
+  return '요소';
+}
+function openEditPanel() {
+  const s = state.selected; if (!s) return;
+  const { kind, ref } = s;
+  const icon = kind === 'light' ? LIGHT_TYPES[ref.type].emoji : kind === 'prop' ? (PROP_INFO[ref.type]?.emoji ?? '🔷') : kind === 'image' ? '🖼️' : '🧱';
+  ep.title.textContent = `${icon} ${elementDisplayName(kind, ref)}`;
+  ep.move.classList.remove('hidden');
+  ep.rotate.classList.toggle('hidden', kind === 'light' || kind === 'block');
+  ep.dup.classList.toggle('hidden', kind === 'block');
+  ep.scaleRow.classList.toggle('hidden', kind === 'light' || kind === 'block');
+  ep.lightSec.classList.toggle('hidden', kind !== 'light');
+  ep.blockSec.classList.toggle('hidden', kind !== 'block');
+  ep.actorSec.classList.toggle('hidden', !(kind === 'prop' && ref.type === 'actor'));
+  ep.move.classList.toggle('mode-on', state.moveMode);
+  if (kind === 'prop' || kind === 'image') { ep.scale.value = ref.scale; ep.scaleVal.textContent = `${(+ref.scale).toFixed(1)}배`; }
+  if (kind === 'light') openLightControls(ref);
+  if (kind === 'block') refreshEpBlockGrid();
+  if (kind === 'prop' && ref.type === 'actor') {
+    if (!ref.cfg) ref.cfg = { skin: '#e8b88f', hair: '#4a3626', hairStyle: ref.variant % 2 ? 'long' : 'short', shirt: ACTOR_OPTIONS.shirt[ref.variant % 8], pants: '#31435e', face: 'basic' };
+    buildActorChips(document.getElementById('epActorChips'), () => ref.cfg, cfg => {
+      const old = { ...ref.cfg };
+      ref.cfg = cfg; rebuildPropGroup(ref); setHL(ref.group, true); markDirty();
+      pushUndo({ undo: () => { ref.cfg = old; rebuildPropGroup(ref); } });
+    });
+  }
+  showPanel('editPanel');
+}
+ep.move.addEventListener('click', () => {
+  if (!state.selected) return;
+  state.moveMode = !state.moveMode;
+  ep.move.classList.toggle('mode-on', state.moveMode);
+  setHint(state.moveMode ? '📍 옮길 곳을 클릭하세요! (오른쪽 클릭 = 취소)' : '이동을 취소했어요');
+});
+ep.rotate.addEventListener('click', () => rotateSelected());
+ep.dup.addEventListener('click', () => duplicateSelected());
+ep.del.addEventListener('click', () => deleteSelected());
+ep.scale.addEventListener('input', () => {
+  const s = state.selected; if (!s || (s.kind !== 'prop' && s.kind !== 'image')) return;
+  if (ep.scale._start === undefined) ep.scale._start = s.ref.scale;
+  s.ref.scale = +ep.scale.value;
+  ep.scaleVal.textContent = `${s.ref.scale.toFixed(1)}배`;
+  if (s.kind === 'prop') s.ref.group.scale.setScalar(s.ref.scale);
+  else { rebuildImage(s.ref); setHL(s.ref.group, true); }
+  markDirty();
+});
+ep.scale.addEventListener('change', () => {
+  const s = state.selected; const old = ep.scale._start; ep.scale._start = undefined;
+  if (!s || old === undefined || old === s.ref.scale) return;
+  const ref = s.ref, kind = s.kind;
+  pushUndo({ undo: () => { ref.scale = old; if (kind === 'prop') ref.group.scale.setScalar(old); else rebuildImage(ref); } });
+});
+
+function rotateSelected() {
+  const s = state.selected; if (!s || (s.kind !== 'prop' && s.kind !== 'image')) return;
+  const ref = s.ref; const old = ref.rot;
+  ref.rot = (ref.rot + Math.PI / 2) % (Math.PI * 2);
+  ref.group.rotation.y = ref.rot;
+  pushUndo({ undo: () => { ref.rot = old; ref.group.rotation.y = old; } });
+  blip(500); markDirty();
+}
+function duplicateSelected() {
+  const s = state.selected; if (!s) return;
+  if (s.kind === 'prop') {
+    const P = s.ref;
+    const N = addPropRaw(P.type, P.pos.x + 1, P.pos.y, P.pos.z + 0.5, P.rot, P.variant, true, { scale: P.scale, cfg: P.cfg ? { ...P.cfg } : null });
+    selectElement('prop', N);
+  } else if (s.kind === 'image') {
+    const I = s.ref;
+    const N = addImageRaw({ src: I.src, tex: I.tex, aspect: I.aspect, scale: I.scale, rot: I.rot, x: I.pos.x + 1, y: I.pos.y, z: I.pos.z + 0.5 }, true);
+    selectElement('image', N);
+  } else if (s.kind === 'light') {
+    const d = serializeLight(s.ref);
+    delete d.id; d.presetId = null; d.name = null;
+    d.pos = [d.pos[0] + 1.2, d.pos[1], d.pos[2]];
+    d.target = [d.target[0] + 1.2, d.target[1], d.target[2]];
+    const N = createLight(d, true);
+    if (N) selectElement('light', N);
+  }
+  toast('⧉ 복제했어요!'); blip(620); markDirty(); renderElementList();
+}
+function moveSelectedTo(point, hit) {
+  const s = state.selected; if (!s) return;
+  const ref = s.ref;
+  if (s.kind === 'block') {
+    const c = cellFromHit(hit);
+    if (!inBounds(c.x, c.y, c.z) || blocks.has(keyOf(c.x, c.y, c.z))) { toast('그 자리에는 놓을 수 없어요'); return; }
+    const b = blocks.get(keyOf(ref.x, ref.y, ref.z)); if (!b) return;
+    const old = { ...ref };
+    removeBlock(ref.x, ref.y, ref.z); addBlock(c.x, c.y, c.z, b.type, b.shape);
+    pushUndo({ undo: () => { removeBlock(c.x, c.y, c.z); addBlock(old.x, old.y, old.z, b.type, b.shape); } });
+    state.selected = { kind: 'block', ref: c };
+    selBox.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); selBox.visible = true;
+  } else if (s.kind === 'prop' || s.kind === 'image') {
+    const old = ref.pos.clone();
+    ref.pos.set(snapHalf(point.x), snapHalf(point.y), snapHalf(point.z));
+    ref.group.position.copy(ref.pos);
+    pushUndo({ undo: () => { ref.pos.copy(old); ref.group.position.copy(old); } });
+  } else if (s.kind === 'light') {
+    const old = ref.pos.clone();
+    if (ref.type === 'floor') ref.pos.set(point.x, point.y + 0.15, point.z);
+    else ref.pos.set(point.x, ref.pos.y, point.z);
+    updateLightVisual(ref);
+    pushUndo({ undo: () => { ref.pos.copy(old); updateLightVisual(ref); } });
+  }
+  state.moveMode = false; ep.move.classList.remove('mode-on');
+  blip(560); markDirty(); updateHint();
 }
 
 // ---------------- 되돌리기 ----------------
@@ -668,9 +1015,9 @@ let propGhost = null;
 function refreshPropGhost() {
   if (propGhost) { scene.remove(propGhost); propGhost = null; }
   if (state.mode !== 'prop' || state.propCat === 'images') return;
-  propGhost = buildProp(state.propType, state.propVariant);
+  propGhost = buildProp(state.propType, state.propVariant, state.propType === 'actor' ? state.actorCfg : null);
   propGhost.traverse(o => {
-    if (o.isMesh) { o.material = Array.isArray(o.material) ? o.material.map(m => m.clone()) : o.material.clone(); const mats = Array.isArray(o.material) ? o.material : [o.material]; mats.forEach(m => { m.transparent = true; m.opacity = 0.5; m.depthWrite = false; }); o.castShadow = false; }
+    if (o.isMesh) { o.material = Array.isArray(o.material) ? o.material.map(m => m.clone()) : o.material.clone(); const mats = Array.isArray(o.material) ? o.material : [o.material]; mats.forEach(m => { m.transparent = true; m.opacity = 0.55; m.depthWrite = false; }); o.castShadow = false; }
     o.raycast = () => {};
   });
   propGhost.visible = false; scene.add(propGhost);
@@ -684,9 +1031,9 @@ function onHover(ev) {
     if (state.blockShape === 'erase') {
       const hit = pick(ev, blockGroup.children); if (!hit) return;
       const c = cellFromHit(hit, true);
-      if (!blocks.has(keyOf(c.x, c.y, c.z))) return;
+      const b = blocks.get(keyOf(c.x, c.y, c.z)); if (!b) return;
       ghost.material = ghostMatErase;
-      ghost.geometry = blocks.get(keyOf(c.x, c.y, c.z)).shape === 'slab' ? slabGeo : cubeGeo;
+      ghost.geometry = b.shape === 'slab' ? slabGeo : cubeGeo;
       ghost.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); ghost.visible = true;
       return;
     }
@@ -704,6 +1051,13 @@ function onHover(ev) {
 }
 
 function onLeftClick(ev) {
+  // 이동 모드
+  if (state.moveMode && state.selected) {
+    const hit = pick(ev, [...blockGroup.children, groundPlane]);
+    if (hit) moveSelectedTo(hit.point, hit);
+    return;
+  }
+  // 조명 다시 겨누기
   if (state.retargeting && state.selected?.kind === 'light') {
     const hit = pick(ev, [...blockGroup.children, groundPlane]);
     if (hit) { state.selected.ref.target.copy(hit.point); updateLightVisual(state.selected.ref); state.retargeting = false; toast('🎯 조명이 새 위치를 비춰요!'); updateHint(); markDirty(); }
@@ -733,18 +1087,25 @@ function onLeftClick(ev) {
       return;
     }
     const hit = pick(ev, [...blockGroup.children, groundPlane]); if (!hit) return;
-    const P = addPropRaw(state.propType, snapHalf(hit.point.x), snapHalf(hit.point.y), snapHalf(hit.point.z), state.propRot, state.propVariant, true);
-    if (P) { blip(540); markDirty(); renderElementList(); if (state.propType === 'actor' || state.propType === 'ball') state.propVariant = (state.propVariant + 1) % 8; refreshPropGhost(); }
+    const extra = state.propType === 'actor' ? { cfg: { ...state.actorCfg } } : {};
+    const P = addPropRaw(state.propType, snapHalf(hit.point.x), snapHalf(hit.point.y), snapHalf(hit.point.z), state.propRot, state.propVariant, true, extra);
+    if (P) { blip(540); markDirty(); renderElementList(); if (state.propType === 'ball') { state.propVariant = (state.propVariant + 1) % 8; refreshPropGhost(); } }
   } else if (isSelectMode()) {
     const hit = pick(ev, selectTargets());
-    if (!hit) { clearSelection(); updateHint(); return; }
-    const ud = hit.object.userData;
-    if (ud.kind === 'fixture') { const Lg = lights.find(l => l.id === ud.lightId); if (Lg) selectElement('light', Lg); }
-    else if (ud.kind === 'prop') { const P = props.find(p => p.id === ud.propId); if (P) selectElement('prop', P); }
-    else if (ud.kind === 'image') { const I = images.find(im => im.id === ud.imageId); if (I) selectElement('image', I); }
+    if (hit) {
+      const ud = hit.object.userData;
+      if (ud.kind === 'fixture') { const Lg = lights.find(l => l.id === ud.lightId); if (Lg) selectElement('light', Lg); }
+      else if (ud.kind === 'prop') { const P = props.find(p => p.id === ud.propId); if (P) selectElement('prop', P); }
+      else if (ud.kind === 'image') { const I = images.find(im => im.id === ud.imageId); if (I) selectElement('image', I); }
+      return;
+    }
+    const hitBlock = pick(ev, blockGroup.children);
+    if (hitBlock) { const c = cellFromHit(hitBlock, true); if (blocks.has(keyOf(c.x, c.y, c.z))) { selectElement('block', c); return; } }
+    clearSelection(); updateHint();
   }
 }
 function onRightClick(ev) {
+  if (state.moveMode) { state.moveMode = false; ep.move.classList.remove('mode-on'); updateHint(); return; }
   if (state.retargeting) { state.retargeting = false; updateHint(); return; }
   const hit = pick(ev, [...selectTargets(), ...blockGroup.children, groundPlane]); if (!hit) return;
   const ud = hit.object.userData;
@@ -771,45 +1132,117 @@ canvas.addEventListener('contextmenu', ev => ev.preventDefault());
 // ---------------- 스위치 유틸 ----------------
 function setSwitch(el, on) { el.classList.toggle('on', on); el.setAttribute('aria-checked', String(on)); }
 
-// ---------------- 조명 설정 패널 ----------------
+// ---------------- 조명 세부 컨트롤 ----------------
 const lp = {
   power: document.getElementById('lpPower'), colors: document.getElementById('lpColors'), custom: document.getElementById('lpCustomColor'),
   intensity: document.getElementById('lpIntensity'), intVal: document.getElementById('lpIntVal'), angle: document.getElementById('lpAngle'), angVal: document.getElementById('lpAngVal'),
 };
 GEL_COLORS.forEach(c => {
   const b = document.createElement('button'); b.className = 'gel'; b.style.background = c; b.title = c;
-  b.addEventListener('click', () => { if (state.selected?.kind !== 'light') return; const Lg = state.selected.ref; Lg.color = c; updateLightVisual(Lg); refreshGel(); markDirty(); });
+  b.addEventListener('click', () => {
+    const Lg = sel('light'); if (!Lg) return;
+    const old = Lg.color;
+    Lg.color = c; updateLightVisual(Lg); refreshGel(); markDirty();
+    pushUndo({ undo: () => { Lg.color = old; updateLightVisual(Lg); } });
+  });
   lp.colors.appendChild(b);
 });
 function refreshGel() { const cur = state.selected?.kind === 'light' ? state.selected.ref.color : null; [...lp.colors.children].forEach((b, i) => b.classList.toggle('active', GEL_COLORS[i] === cur)); }
-function openLightPanel(Lg) {
-  document.getElementById('lpTitle').textContent = `${LIGHT_TYPES[Lg.type].emoji} ${LIGHT_TYPES[Lg.type].name}`;
+function openLightControls(Lg) {
   setSwitch(lp.power, Lg.on);
   lp.intensity.value = Lg.intensity; lp.intVal.textContent = Lg.intensity;
   lp.angle.value = Lg.angle; lp.angVal.textContent = `${Lg.angle}°`; lp.custom.value = Lg.color;
-  refreshGel(); showPanel('lightPanel'); blip(760);
+  refreshGel();
 }
 function sel(kind) { return state.selected?.kind === kind ? state.selected.ref : null; }
-lp.power.addEventListener('click', () => { const Lg = sel('light'); if (!Lg) return; Lg.on = !Lg.on; setSwitch(lp.power, Lg.on); updateLightVisual(Lg); markDirty(); });
-lp.custom.addEventListener('input', () => { const Lg = sel('light'); if (!Lg) return; Lg.color = lp.custom.value; updateLightVisual(Lg); refreshGel(); markDirty(); });
-lp.intensity.addEventListener('input', () => { const Lg = sel('light'); if (!Lg) return; Lg.intensity = +lp.intensity.value; lp.intVal.textContent = Lg.intensity; updateLightVisual(Lg); markDirty(); });
-lp.angle.addEventListener('input', () => { const Lg = sel('light'); if (!Lg) return; Lg.angle = +lp.angle.value; lp.angVal.textContent = `${Lg.angle}°`; updateLightVisual(Lg); markDirty(); });
+lp.power.addEventListener('click', () => { const Lg = sel('light'); if (!Lg) return; Lg.on = !Lg.on; setSwitch(lp.power, Lg.on); updateLightVisual(Lg); markDirty(); pushUndo({ undo: () => { Lg.on = !Lg.on; updateLightVisual(Lg); } }); });
+lp.custom.addEventListener('input', () => { const Lg = sel('light'); if (!Lg) return; if (lp.custom._start === undefined) lp.custom._start = Lg.color; Lg.color = lp.custom.value; updateLightVisual(Lg); refreshGel(); markDirty(); });
+lp.custom.addEventListener('change', () => { const Lg = sel('light'); const old = lp.custom._start; lp.custom._start = undefined; if (!Lg || old === undefined || old === Lg.color) return; pushUndo({ undo: () => { Lg.color = old; updateLightVisual(Lg); } }); });
+lp.intensity.addEventListener('input', () => { const Lg = sel('light'); if (!Lg) return; if (lp.intensity._start === undefined) lp.intensity._start = Lg.intensity; Lg.intensity = +lp.intensity.value; lp.intVal.textContent = Lg.intensity; updateLightVisual(Lg); markDirty(); });
+lp.intensity.addEventListener('change', () => { const Lg = sel('light'); const old = lp.intensity._start; lp.intensity._start = undefined; if (!Lg || old === undefined || old === Lg.intensity) return; pushUndo({ undo: () => { Lg.intensity = old; updateLightVisual(Lg); } }); });
+lp.angle.addEventListener('input', () => { const Lg = sel('light'); if (!Lg) return; if (lp.angle._start === undefined) lp.angle._start = Lg.angle; Lg.angle = +lp.angle.value; lp.angVal.textContent = `${Lg.angle}°`; updateLightVisual(Lg); markDirty(); });
+lp.angle.addEventListener('change', () => { const Lg = sel('light'); const old = lp.angle._start; lp.angle._start = undefined; if (!Lg || old === undefined || old === Lg.angle) return; pushUndo({ undo: () => { Lg.angle = old; updateLightVisual(Lg); } }); });
 document.getElementById('lpAim').addEventListener('click', () => { if (!sel('light')) return; state.retargeting = true; setHint('🎯 조명이 비출 곳을 클릭하세요! (오른쪽 클릭 = 취소)'); });
-document.getElementById('lpDelete').addEventListener('click', () => { const Lg = sel('light'); if (Lg) { deleteLight(Lg); toast('조명을 뗐어요'); markDirty(); renderElementList(); } });
 
-// ---------------- 이미지 편집 패널 ----------------
-const ie = { size: document.getElementById('ieSize'), sizeVal: document.getElementById('ieSizeVal') };
-function openImgPanel(I) { ie.size.value = I.scale; ie.sizeVal.textContent = `${I.scale.toFixed(1)}배`; showPanel('imgEditPanel'); }
-ie.size.addEventListener('input', () => { const I = sel('image'); if (!I) return; I.scale = +ie.size.value; ie.sizeVal.textContent = `${I.scale.toFixed(1)}배`; rebuildImage(I); setHL(I.group, true); markDirty(); });
-document.getElementById('ieRotate').addEventListener('click', () => { const I = sel('image'); if (!I) return; I.rot = (I.rot + Math.PI / 2) % (Math.PI * 2); I.group.rotation.y = I.rot; markDirty(); });
-document.getElementById('ieDelete').addEventListener('click', () => { const I = sel('image'); if (I) { deleteImage(I); markDirty(); renderElementList(); } });
+// 블록 종류 변경 그리드
+function refreshEpBlockGrid() {
+  const grid = document.getElementById('epBlockGrid'); grid.innerHTML = '';
+  const s = state.selected; if (s?.kind !== 'block') return;
+  const cur = blocks.get(keyOf(s.ref.x, s.ref.y, s.ref.z));
+  BLOCK_ORDER.forEach(id => {
+    const b = document.createElement('button'); b.className = 'swatch' + (cur?.type === id ? ' active' : ''); b.title = BLOCKS[id].name;
+    const img = document.createElement('img'); img.src = BLOCKS[id].thumb; img.alt = BLOCKS[id].name; b.appendChild(img);
+    b.addEventListener('click', () => {
+      const ss = state.selected; if (ss?.kind !== 'block') return;
+      const { x, y, z } = ss.ref;
+      const bb = blocks.get(keyOf(x, y, z)); if (!bb || bb.type === id) return;
+      const oldType = bb.type, shape = bb.shape;
+      removeBlock(x, y, z); addBlock(x, y, z, id, shape);
+      pushUndo({ undo: () => { removeBlock(x, y, z); addBlock(x, y, z, oldType, shape); } });
+      state.selected = { kind: 'block', ref: { x, y, z } };
+      selBox.visible = true;
+      refreshEpBlockGrid(); markDirty(); blip(540);
+    });
+    grid.appendChild(b);
+  });
+}
 
+// ---------------- 패널 유틸 ----------------
 function showPanel(id) { document.getElementById(id).classList.remove('hidden'); }
 function hidePanel(id) { document.getElementById(id).classList.add('hidden'); }
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => {
   const id = b.dataset.close; hidePanel(id);
-  if (id === 'lightPanel' || id === 'imgEditPanel') clearSelection();
+  if (id === 'editPanel') clearSelection();
+  if (id === 'floatList') document.getElementById('viewport').classList.remove('list-open');
 }));
+
+// ---------------- 배우 꾸미기 칩 ----------------
+function buildActorChips(container, getCfg, setCfg) {
+  container.innerHTML = '';
+  const cfg = getCfg();
+  const mkRow = (label, child) => {
+    const row = document.createElement('div'); row.className = 'chip-row';
+    const lb = document.createElement('span'); lb.className = 'chip-label'; lb.textContent = label;
+    row.appendChild(lb); row.appendChild(child); container.appendChild(row);
+  };
+  const colorRow = (label, colors, key) => {
+    const set = document.createElement('div'); set.className = 'chip-set';
+    colors.forEach(col => {
+      const b = document.createElement('button'); b.className = 'color-chip' + (cfg[key] === col ? ' active' : '');
+      b.style.background = col; b.title = col;
+      b.addEventListener('click', () => { setCfg({ ...getCfg(), [key]: col }); buildActorChips(container, getCfg, setCfg); });
+      set.appendChild(b);
+    });
+    mkRow(label, set);
+  };
+  const optRow = (label, opts, key) => {
+    const set = document.createElement('div'); set.className = 'chip-set';
+    opts.forEach(o => {
+      const b = document.createElement('button'); b.className = 'opt-chip' + (cfg[key] === o.id ? ' active' : '');
+      b.textContent = o.emoji ? `${o.emoji} ${o.name}` : o.name;
+      b.addEventListener('click', () => { setCfg({ ...getCfg(), [key]: o.id }); buildActorChips(container, getCfg, setCfg); });
+      set.appendChild(b);
+    });
+    mkRow(label, set);
+  };
+  colorRow('피부색', ACTOR_OPTIONS.skin, 'skin');
+  optRow('머리 모양', ACTOR_OPTIONS.hairStyle, 'hairStyle');
+  colorRow('머리색', ACTOR_OPTIONS.hair, 'hair');
+  colorRow('상의 색', ACTOR_OPTIONS.shirt, 'shirt');
+  colorRow('하의 색', ACTOR_OPTIONS.pants, 'pants');
+  optRow('표정', ACTOR_OPTIONS.face, 'face');
+}
+function refreshActorCard() {
+  const card = document.getElementById('actorCard');
+  const show = state.propCat === 'people' && state.propType === 'actor';
+  card.classList.toggle('hidden', !show);
+  if (show) buildActorChips(document.getElementById('actorChips'), () => state.actorCfg, cfg => { state.actorCfg = cfg; refreshPropGhost(); });
+}
+document.getElementById('btnActorRandom').addEventListener('click', () => {
+  state.actorCfg = randomActorCfg();
+  refreshActorCard(); refreshPropGhost();
+  toast('🎲 새로운 모습으로 바꿨어요!');
+});
 
 // ---------------- 팔레트 UI ----------------
 function buildBlockPalette() {
@@ -850,7 +1283,7 @@ function buildLightPalette() {
 function buildPresetGrid() {
   const grid = document.getElementById('presetGrid');
   LIGHT_PRESETS.forEach(p => {
-    const b = document.createElement('button'); b.className = 'preset-btn';
+    const b = document.createElement('button'); b.className = 'preset-btn'; b.dataset.preset = p.id;
     b.innerHTML = `<span class="pe">${p.emoji}</span><span class="pn">${p.name}</span><span class="pd">${p.desc}</span>`;
     b.addEventListener('click', () => applyLightPreset(p));
     grid.appendChild(b);
@@ -870,6 +1303,7 @@ function buildPropUI() {
   cats.appendChild(chip('images', '🖼️ 내 이미지', false));
   cats.querySelectorAll('.cat-chip').forEach(c => c.addEventListener('click', () => selectCategory(c.dataset.cat)));
   renderPropGrid();
+  refreshActorCard();
 }
 function selectCategory(catId) {
   state.propCat = catId;
@@ -878,6 +1312,7 @@ function selectCategory(catId) {
   document.getElementById('propGrid').classList.toggle('hidden', isImg);
   document.getElementById('imagePanel').classList.toggle('hidden', !isImg);
   if (!isImg) renderPropGrid();
+  refreshActorCard();
   refreshPropGhost();
 }
 function renderPropGrid() {
@@ -886,7 +1321,7 @@ function renderPropGrid() {
   cat.items.forEach(def => {
     const b = document.createElement('button'); b.className = 'pcard' + (def.id === state.propType ? ' active' : '');
     b.innerHTML = `<span class="ic">${def.emoji}</span><span><div class="nm">${def.name}</div><div class="ds">${def.desc}</div></span>`;
-    b.addEventListener('click', () => { state.propType = def.id; grid.querySelectorAll('.pcard').forEach(c => c.classList.remove('active')); b.classList.add('active'); refreshPropGhost(); setHint(`${def.emoji} ${def.name} — 무대를 클릭해서 놓아요 (R = 방향)`); });
+    b.addEventListener('click', () => { state.propType = def.id; grid.querySelectorAll('.pcard').forEach(c => c.classList.remove('active')); b.classList.add('active'); refreshActorCard(); refreshPropGhost(); setHint(`${def.emoji} ${def.name} — 무대를 클릭해서 놓아요 (R = 방향)`); });
     grid.appendChild(b);
   });
 }
@@ -926,10 +1361,10 @@ function setMode(mode) {
   updateHint();
 }
 const HINTS = {
-  view: '👀 드래그 = 둘러보기 · 휠 = 확대 · 놓은 것을 클릭하면 선택돼요',
+  view: '👀 드래그 = 둘러보기 · 놓은 것을 클릭하면 선택하고 편집할 수 있어요',
   block: '🧱 클릭 = 블록 놓기 · 드래그 = 시점 돌리기',
   prop: '🪑 소품을 고르고 무대를 클릭하세요 · R = 방향 돌리기',
-  light: '💡 세트 버튼 하나면 조명 완성! 직접 달기로 바꿀 수도 있어요',
+  light: '💡 세트 버튼 하나면 조명 완성! 한 번 더 누르면 꺼져요',
   perform: '🎬 큐와 음악을 준비하고, 공연 모드를 켜 보세요!',
 };
 function setHint(t) { document.getElementById('hintText').textContent = t; }
@@ -942,8 +1377,8 @@ function serializeScene() {
     name: proj.scenes[proj.active].name,
     blocks: [...blocks.entries()].map(([k, b]) => { const [x, y, z] = k.split(',').map(Number); return [x, y, z, b.type, b.shape === 'slab' ? 1 : 0]; }),
     lights: lights.map(serializeLight),
-    props: props.map(p => ({ type: p.type, x: p.pos.x, y: p.pos.y, z: p.pos.z, rot: p.rot, variant: p.variant })),
-    images: images.map(im => ({ src: im.src, aspect: im.aspect, scale: im.scale, rot: im.rot, x: im.pos.x, y: im.pos.y, z: im.pos.z })),
+    props: props.map(p => ({ type: p.type, x: p.pos.x, y: p.pos.y, z: p.pos.z, rot: p.rot, variant: p.variant, scale: p.scale, cfg: p.cfg, name: p.name, hide: p.hide })),
+    images: images.map(im => ({ src: im.src, aspect: im.aspect, scale: im.scale, rot: im.rot, name: im.name, hide: im.hide, x: im.pos.x, y: im.pos.y, z: im.pos.z })),
     cues: cues.map(c => ({ name: c.name, lights: c.lights })),
   };
 }
@@ -953,17 +1388,20 @@ function clearLive() {
   for (const Lg of [...lights]) { lightGroup.remove(Lg.group); scene.remove(Lg.targetObj); } lights.length = 0;
   for (const P of [...props]) propGroup.remove(P.group); props.length = 0;
   for (const I of [...images]) if (I.group) imageGroup.remove(I.group); images.length = 0;
-  undoStack.length = 0; state.selected = null; hidePanel('lightPanel'); hidePanel('imgEditPanel');
+  undoStack.length = 0; state.selected = null; state.moveMode = false; selBox.visible = false;
+  hidePanel('editPanel');
 }
 function hydrateScene(s) {
   clearLive();
   for (const [x, y, z, type, slab] of s.blocks ?? []) addBlock(x, y, z, type, slab ? 'slab' : 'cube');
   for (const l of s.lights ?? []) createLight(l, false);
-  for (const p of s.props ?? []) addPropRaw(p.type, p.x, p.y, p.z, p.rot, p.variant);
-  for (const im of s.images ?? []) addImageRaw({ src: im.src, aspect: im.aspect, scale: im.scale, rot: im.rot, x: im.x, y: im.y, z: im.z });
+  for (const p of s.props ?? []) addPropRaw(p.type, p.x, p.y, p.z, p.rot, p.variant, false, { scale: p.scale, cfg: p.cfg, name: p.name, hide: p.hide });
+  for (const im of s.images ?? []) addImageRaw(im);
   cues = (s.cues ?? []).map(c => ({ name: c.name, lights: c.lights }));
   cueSeq = cues.length + 1;
   cueActive = -1;
+  state.activePreset = lights.find(l => l.presetId)?.presetId ?? null;
+  refreshPresetButtons();
 }
 function renderSceneBar() {
   const tabs = document.getElementById('sceneTabs'); tabs.innerHTML = '';
@@ -998,34 +1436,72 @@ function deleteScene(i) {
 }
 document.getElementById('btnAddScene').addEventListener('click', addScene);
 
-// ---------------- 요소 목록 ----------------
+// ---------------- 요소 목록 (사이드바 + 플로팅) ----------------
 function renderElementList() {
-  const box = document.getElementById('elementList'); box.innerHTML = '';
+  renderElementListInto(document.getElementById('elementList'));
+  renderElementListInto(document.getElementById('elementListFloat'));
+}
+function renderElementListInto(box) {
+  if (!box) return;
+  box.innerHTML = '';
   const section = (title) => { const h = document.createElement('div'); h.className = 'el-group-title'; h.textContent = title; box.appendChild(h); };
-  const row = (icon, name, onSel, onDel, selected) => {
-    const r = document.createElement('div'); r.className = 'el-row' + (selected ? ' sel' : '');
-    r.innerHTML = `<span class="eic">${icon}</span><span class="enm">${name}</span>`;
-    const d = document.createElement('button'); d.className = 'edel'; d.innerHTML = '<span class="material-icons-outlined">delete</span>'; d.title = '삭제';
-    d.addEventListener('click', e => { e.stopPropagation(); onDel(); });
-    r.appendChild(d); r.addEventListener('click', onSel); box.appendChild(r);
-  };
   const empty = () => { const e = document.createElement('div'); e.className = 'el-empty'; e.textContent = '아직 없어요'; box.appendChild(e); };
+  const icBtn = (icon, title, fn) => {
+    const b = document.createElement('button'); b.className = 'ebtn' + (icon === 'delete' ? ' edel' : '');
+    b.innerHTML = `<span class="material-icons-outlined">${icon}</span>`; b.title = title;
+    b.addEventListener('click', e => { e.stopPropagation(); fn(); });
+    return b;
+  };
+  const row = (kind, ref, icon, name, i) => {
+    const r = document.createElement('div');
+    r.className = 'el-row' + (state.selected?.ref === ref ? ' sel' : '') + (ref.hide ? ' ghosted' : '');
+    r.innerHTML = `<span class="eic">${icon}</span><span class="enm">${ref.name ?? name}</span>`;
+    r.appendChild(icBtn('edit', '이름 바꾸기', () => {
+      const nn = prompt('이름을 바꿀까요?', ref.name ?? name);
+      if (nn) { ref.name = nn.slice(0, 20); markDirty(); renderElementList(); if (state.selected?.ref === ref) openEditPanel(); }
+    }));
+    r.appendChild(icBtn(ref.hide ? 'visibility_off' : 'visibility', ref.hide ? '보이기' : '숨기기', () => {
+      ref.hide = !ref.hide;
+      if (kind === 'light') updateLightVisual(ref); else ref.group.visible = !ref.hide;
+      markDirty(); renderElementList();
+    }));
+    r.appendChild(icBtn('content_copy', '복제', () => { selectElement(kind, ref); duplicateSelected(); }));
+    r.appendChild(icBtn('delete', '삭제', () => {
+      if (kind === 'light') deleteLight(ref); else if (kind === 'prop') deleteProp(ref); else deleteImage(ref);
+      markDirty(); renderElementList();
+    }));
+    r.addEventListener('click', () => selectElement(kind, ref));
+    box.appendChild(r);
+  };
   section(`💡 조명 (${lights.length})`);
   if (!lights.length) empty();
-  lights.forEach((Lg, i) => row(LIGHT_TYPES[Lg.type].emoji, `${LIGHT_TYPES[Lg.type].name} ${i + 1}${Lg.on ? '' : ' (꺼짐)'}`, () => selectElement('light', Lg), () => { deleteLight(Lg); markDirty(); renderElementList(); }, state.selected?.ref === Lg));
+  lights.forEach((Lg, i) => row('light', Lg, LIGHT_TYPES[Lg.type].emoji, `${LIGHT_TYPES[Lg.type].name} ${i + 1}${Lg.on ? '' : ' (꺼짐)'}`, i));
   section(`🪑 소품 (${props.length})`);
   if (!props.length) empty();
-  props.forEach(P => row(PROP_INFO[P.type]?.emoji ?? '🔷', PROP_INFO[P.type]?.name ?? P.type, () => selectElement('prop', P), () => { deleteProp(P); markDirty(); renderElementList(); }, state.selected?.ref === P));
+  props.forEach(P => row('prop', P, PROP_INFO[P.type]?.emoji ?? '🔷', PROP_INFO[P.type]?.name ?? P.type));
   section(`🖼️ 이미지 (${images.length})`);
   if (!images.length) empty();
-  images.forEach((I, i) => row('🖼️', `내 이미지 ${i + 1}`, () => selectElement('image', I), () => { deleteImage(I); markDirty(); renderElementList(); }, state.selected?.ref === I));
+  images.forEach((I, i) => row('image', I, '🖼️', `내 이미지 ${i + 1}`));
   section(`🧱 블록 (${blocks.size})`);
   const clr = document.createElement('div'); clr.className = 'el-row';
   clr.innerHTML = `<span class="eic">🧱</span><span class="enm">블록 모두 지우기</span>`;
-  const cd = document.createElement('button'); cd.className = 'edel'; cd.innerHTML = '<span class="material-icons-outlined">delete</span>';
+  const cd = document.createElement('button'); cd.className = 'ebtn edel'; cd.innerHTML = '<span class="material-icons-outlined">delete</span>';
   cd.addEventListener('click', e => { e.stopPropagation(); if (blocks.size && confirm('이 장면의 블록을 모두 지울까요?')) { for (const [k] of [...blocks]) { const [x, y, z] = k.split(',').map(Number); removeBlock(x, y, z); } markDirty(); renderElementList(); } });
   clr.appendChild(cd); box.appendChild(clr);
 }
+
+// 플로팅 목록 열기/접기/닫기
+const floatList = document.getElementById('floatList');
+document.getElementById('btnList').addEventListener('click', () => {
+  const opening = floatList.classList.contains('hidden');
+  floatList.classList.toggle('hidden', !opening);
+  document.getElementById('viewport').classList.toggle('list-open', opening);
+  if (opening) renderElementList();
+});
+document.getElementById('flCollapse').addEventListener('click', function () {
+  floatList.classList.toggle('collapsed');
+  this.querySelector('.material-icons-outlined').textContent = floatList.classList.contains('collapsed') ? 'expand_more' : 'expand_less';
+});
 
 // ---------------- 조명 큐 ----------------
 let cueActive = -1, cuePlaying = false, cueHoldTimer = null;
@@ -1057,6 +1533,8 @@ function finishCueSwap(index) {
   for (const data of cues[index].lights) createLight(data, false);
   applyCueScale();
   cueActive = index; renderCues(); renderElementList();
+  state.activePreset = lights.find(l => l.presetId)?.presetId ?? null;
+  refreshPresetButtons();
   if (state.selected?.kind === 'light') clearSelection();
 }
 function playCues() {
@@ -1074,7 +1552,7 @@ document.getElementById('cueCapture').addEventListener('click', captureCue);
 document.getElementById('cuePlay').addEventListener('click', playCues);
 document.getElementById('cueFade').addEventListener('input', ev => { document.getElementById('cueFadeVal').textContent = `${(+ev.target.value).toFixed(1)}초`; });
 
-// ---------------- 음악 ----------------
+// ---------------- 음악 (사용자 음악) ----------------
 const music = (() => {
   const audio = new Audio(); audio.loop = false;
   let mode = 'file', ytPlayer = null, ytReady = false, loop = false, vol = 0.8, playing = false;
@@ -1133,27 +1611,22 @@ document.querySelectorAll('.mtab').forEach(t => t.addEventListener('click', () =
 
 // ---------------- 상단 바 ----------------
 document.getElementById('btnUndo').addEventListener('click', undo);
-
-// 저장·공유 메뉴
 const saveMenu = document.getElementById('saveMenu');
 document.getElementById('btnSaveMenu').addEventListener('click', ev => { ev.stopPropagation(); saveMenu.classList.toggle('hidden'); });
 document.addEventListener('click', ev => { if (!ev.target.closest('.menu-wrap')) saveMenu.classList.add('hidden'); });
 saveMenu.addEventListener('click', () => saveMenu.classList.add('hidden'));
 
 document.getElementById('houseSlider').addEventListener('input', ev => { state.house = ev.target.value / 100; proj.house = state.house; applyHouseLights(); });
-
-// 화면 옵션 스위치
 document.getElementById('tgZones').addEventListener('click', function () {
   state.zones = !state.zones; setSwitch(this, state.zones);
   if (zoneMesh) zoneMesh.visible = state.zones;
-  if (state.zones) toast('📍 무대 구역 이름이 보여요 — 배움터에서 자세히!');
+  if (state.zones) toast('📍 무대 구역이 보여요 — SR/SL은 배우 기준이에요!');
 });
 document.getElementById('tgSeats').addEventListener('click', function () {
   state.seats = !state.seats; setSwitch(this, state.seats);
   seatGroup.visible = state.seats;
 });
 
-// 공연 모드
 const performPill = document.getElementById('performPill');
 performPill.addEventListener('click', () => {
   state.perform = !state.perform;
@@ -1181,7 +1654,7 @@ document.getElementById('btnShot').addEventListener('click', () => {
 function serializeProject() { snapshot(); return { v: 2, preset: proj.preset, house: proj.house, active: proj.active, scenes: proj.scenes, music: music.getState() }; }
 function restoreProject(data) {
   if (!data) return false;
-  if (data.preset === 'outdoor') data.preset = 'outdoor_forest'; // 이전 버전 호환
+  if (data.preset === 'outdoor') data.preset = 'outdoor_forest';
   if (!PRESETS[data.preset]) return false;
   proj.preset = data.preset; proj.house = data.house ?? 0.7; state.house = proj.house;
   document.getElementById('houseSlider').value = proj.house * 100;
@@ -1273,7 +1746,7 @@ window.addEventListener('keydown', ev => {
     case '1': setMode('view'); break; case '2': setMode('block'); break; case '3': setMode('prop'); break; case '4': setMode('light'); break; case '5': setMode('perform'); break;
     case 'r': case 'R':
       if (state.mode === 'prop') { state.propRot = (state.propRot + Math.PI / 2) % (Math.PI * 2); if (propGhost) propGhost.rotation.y = state.propRot; }
-      if (state.selected?.kind === 'image') { const I = state.selected.ref; I.rot = (I.rot + Math.PI / 2) % (Math.PI * 2); I.group.rotation.y = I.rot; markDirty(); }
+      else if (state.selected && (state.selected.kind === 'prop' || state.selected.kind === 'image')) rotateSelected();
       break;
     case 'Delete': case 'Backspace': if (state.selected) { ev.preventDefault(); deleteSelected(); } break;
     case 'Escape': clearSelection(); updateHint(); break;
@@ -1309,6 +1782,8 @@ function animate() {
   requestAnimationFrame(animate);
   resize();
   const t = clock.getElapsedTime(), dt = Math.min(0.05, clock.getDelta());
+
+  for (const fn of envAnims) fn(t, dt);
 
   for (const Lg of lights) {
     if (Lg.type !== 'moving' || !Lg.on) continue;

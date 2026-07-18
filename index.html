@@ -38,6 +38,7 @@
 
   <div class="top-right">
     <button id="btnUndo" class="btn ghost" title="방금 한 일을 되돌려요 (Ctrl+Z)"><span class="material-icons-outlined">undo</span><span class="btn-label">되돌리기</span></button>
+    <button id="btnList" class="btn ghost" title="내가 놓은 요소 목록을 화면에 띄워요"><span class="material-icons-outlined">checklist</span><span class="btn-label">목록</span></button>
 
     <div class="menu-wrap">
       <button id="btnSaveMenu" class="btn ghost" title="저장하고 나눠요"><span class="material-icons-outlined">save</span><span class="btn-label">저장·공유</span><span class="material-icons-outlined caret">expand_more</span></button>
@@ -128,6 +129,12 @@
             <div id="imgGrid" class="swatch-grid"></div>
           </div>
         </div>
+        <div id="actorCard" class="pal-card">
+          <h3><span class="material-icons-outlined">face</span>배우 꾸미기</h3>
+          <p class="pal-help">마우스를 무대 위에 올리면 <b>미리보기</b>가 따라다녀요.</p>
+          <div id="actorChips"></div>
+          <button id="btnActorRandom" class="btn secondary wide">🎲 랜덤으로 꾸미기</button>
+        </div>
       </div>
 
       <!-- 조명 -->
@@ -188,6 +195,12 @@
             <input type="range" id="mVol" min="0" max="100" value="80" aria-label="음량">
           </div>
         </div>
+        <div class="pal-card">
+          <h3><span class="material-icons-outlined">forest</span>환경 소리</h3>
+          <p class="pal-help">숲·바다·우주 무대에 들어가면 어울리는 소리가 자동으로 흘러나와요.</p>
+          <label class="opt-row slim"><span>소리 켜기</span><button id="ambMute" class="switch on" role="switch" aria-checked="true"></button></label>
+          <input type="range" id="ambVol" min="0" max="100" value="50" aria-label="환경 소리 음량">
+        </div>
         <div class="pal-card tip">
           🌙 준비가 끝났다면 화면의 <b>공연 모드</b> 버튼을 눌러 보세요. 극장이 어두워지고 여러분의 조명만 무대를 밝혀요!
         </div>
@@ -200,31 +213,48 @@
     <canvas id="stage3d"></canvas>
 
     <button id="performPill" class="perform-pill" title="극장 불을 끄고 내 조명만 켜서 진짜 공연처럼 봐요">🌙 공연 모드</button>
+    <button id="ambPill" class="perform-pill amb hidden" title="환경 소리 켜기/끄기">🔊</button>
 
-    <!-- 조명 설정 팝업 -->
-    <div id="lightPanel" class="side-panel hidden">
-      <div class="sp-head"><span id="lpTitle">💡 조명</span><button class="sp-close" data-close="lightPanel" title="닫기"><span class="material-icons-outlined">close</span></button></div>
-      <label class="lp-row"><span>전원</span><button id="lpPower" class="switch on" role="switch" aria-checked="true"></button></label>
-      <div class="lp-row col"><span>색깔 (컬러 젤)</span>
-        <div id="lpColors" class="gel-grid"></div>
-        <input type="color" id="lpCustomColor" value="#fff2cc" title="원하는 색 직접 고르기">
+    <!-- 요소 편집 팝업 (종류에 따라 필요한 기능만 보여요) -->
+    <div id="editPanel" class="side-panel hidden">
+      <div class="sp-head"><span id="epTitle">요소</span><button class="sp-close" data-close="editPanel" title="닫기"><span class="material-icons-outlined">close</span></button></div>
+      <div class="ep-actions">
+        <button id="epMove" class="btn secondary" title="옮길 곳을 클릭해요"><span class="material-icons-outlined">open_with</span>이동</button>
+        <button id="epRotate" class="btn secondary" title="90도씩 돌아가요 (R)"><span class="material-icons-outlined">rotate_right</span>회전</button>
+        <button id="epDup" class="btn secondary" title="똑같은 것을 하나 더 만들어요"><span class="material-icons-outlined">content_copy</span>복제</button>
+        <button id="epDelete" class="btn danger"><span class="material-icons-outlined">delete</span>삭제</button>
       </div>
-      <label class="lp-row col"><span>밝기 <em id="lpIntVal"></em></span><input type="range" id="lpIntensity" min="0.5" max="12" step="0.5"></label>
-      <label class="lp-row col"><span>빛 퍼짐 <em id="lpAngVal"></em></span><input type="range" id="lpAngle" min="8" max="55" step="1"></label>
-      <div class="lp-row">
-        <button id="lpAim" class="btn secondary"><span class="material-icons-outlined">my_location</span>다시 겨누기</button>
-        <button id="lpDelete" class="btn danger"><span class="material-icons-outlined">delete</span>삭제</button>
+      <label id="epScaleRow" class="lp-row col hidden"><span>크기 <em id="epScaleVal"></em></span><input type="range" id="epScale" min="0.4" max="3" step="0.1"></label>
+      <div id="epLightSec" class="hidden">
+        <label class="lp-row"><span>전원</span><button id="lpPower" class="switch on" role="switch" aria-checked="true"></button></label>
+        <div class="lp-row col"><span>색깔 (컬러 젤)</span>
+          <div id="lpColors" class="gel-grid"></div>
+          <input type="color" id="lpCustomColor" value="#fff2cc" title="원하는 색 직접 고르기">
+        </div>
+        <label class="lp-row col"><span>밝기 <em id="lpIntVal"></em></span><input type="range" id="lpIntensity" min="0.5" max="12" step="0.5"></label>
+        <label class="lp-row col"><span>빛 퍼짐 <em id="lpAngVal"></em></span><input type="range" id="lpAngle" min="8" max="55" step="1"></label>
+        <button id="lpAim" class="btn secondary wide"><span class="material-icons-outlined">my_location</span>다시 겨누기</button>
+      </div>
+      <div id="epBlockSec" class="hidden">
+        <p class="pal-help">다른 블록으로 바꿔 보세요.</p>
+        <div id="epBlockGrid" class="swatch-grid mini"></div>
+      </div>
+      <div id="epActorSec" class="hidden">
+        <p class="pal-help">이 배우를 다시 꾸며요.</p>
+        <div id="epActorChips"></div>
       </div>
     </div>
 
-    <!-- 이미지 설정 팝업 -->
-    <div id="imgEditPanel" class="side-panel hidden">
-      <div class="sp-head"><span>🖼️ 내 이미지</span><button class="sp-close" data-close="imgEditPanel" title="닫기"><span class="material-icons-outlined">close</span></button></div>
-      <label class="lp-row col"><span>크기 <em id="ieSizeVal"></em></span><input type="range" id="ieSize" min="0.4" max="4" step="0.1"></label>
-      <div class="lp-row">
-        <button id="ieRotate" class="btn secondary"><span class="material-icons-outlined">rotate_right</span>돌리기</button>
-        <button id="ieDelete" class="btn danger"><span class="material-icons-outlined">delete</span>삭제</button>
+    <!-- 플로팅 요소 목록 -->
+    <div id="floatList" class="side-panel float-list hidden">
+      <div class="sp-head">
+        <span>📋 요소 목록</span>
+        <span class="fl-btns">
+          <button id="flCollapse" class="sp-close" title="접기/펼치기"><span class="material-icons-outlined">expand_less</span></button>
+          <button class="sp-close" data-close="floatList" title="닫기"><span class="material-icons-outlined">close</span></button>
+        </span>
       </div>
+      <div id="elementListFloat" class="fl-body"></div>
     </div>
 
     <div id="hintbar"><span id="hintText"></span></div>

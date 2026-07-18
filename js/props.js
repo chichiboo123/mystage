@@ -28,23 +28,50 @@ function torus(r, tube, color, x = 0, y = 0, z = 0, opts) {
 }
 function group(...meshes) { const g = new THREE.Group(); g.add(...meshes); return g; }
 
-// 사람 얼굴 텍스처 (앞면에만)
-function makeFace(skin = '#e8b88f') {
+// 사람 얼굴 텍스처 (앞면에만) — 표정 선택 가능
+function makeFace(skin = '#e8b88f', face = 'basic') {
   const c = document.createElement('canvas');
   c.width = 8; c.height = 8;
   const ctx = c.getContext('2d');
   ctx.fillStyle = skin; ctx.fillRect(0, 0, 8, 8);
   ctx.fillStyle = '#2b2b2b';
-  ctx.fillRect(1, 3, 2, 1); ctx.fillRect(5, 3, 2, 1);
-  ctx.fillRect(3, 5, 2, 1);
+  if (face === 'wink') { ctx.fillRect(1, 3, 2, 1); ctx.fillRect(5, 3, 2, 1); ctx.fillRect(5, 2, 2, 1); ctx.fillStyle = skin; ctx.fillRect(5, 3, 2, 1); ctx.fillStyle = '#2b2b2b'; }
+  else { ctx.fillRect(1, 3, 2, 1); ctx.fillRect(5, 3, 2, 1); }
+  if (face === 'smile') { ctx.fillRect(2, 5, 1, 1); ctx.fillRect(3, 6, 2, 1); ctx.fillRect(5, 5, 1, 1); }
+  else if (face === 'open') { ctx.fillStyle = '#7a3030'; ctx.fillRect(3, 5, 2, 2); ctx.fillStyle = '#2b2b2b'; }
+  else ctx.fillRect(3, 5, 2, 1);
   const tex = new THREE.CanvasTexture(c);
   tex.magFilter = THREE.NearestFilter;
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
-// 공통 사람 몸체 (셔츠/바지/머리카락 색 지정)
-function person({ shirt = '#d94040', pants = '#31435e', hair = '#4a3626', skin = '#e8b88f', hairStyle = 'short' } = {}) {
+// 배우 꾸미기 선택지 (마인크래프트식 커스터마이징)
+export const ACTOR_OPTIONS = {
+  skin: ['#f5d3b3', '#e8b88f', '#c68d5e', '#8d5a3b'],
+  hair: ['#2b2118', '#4a3626', '#8a5a30', '#caa64a', '#d94040', '#4a7fd4'],
+  hairStyle: [
+    { id: 'short', name: '짧은 머리' }, { id: 'long', name: '긴 머리' },
+    { id: 'cap', name: '모자' }, { id: 'none', name: '민머리' },
+  ],
+  shirt: ['#d94040', '#4a7fd4', '#48a860', '#e78a2e', '#8e5bc9', '#e883b0', '#ecc94b', '#3ba7a0'],
+  pants: ['#31435e', '#1e1e28', '#6b4a2b', '#c03a4a', '#48a860', '#e8e8ee'],
+  face: [
+    { id: 'basic', name: '기본', emoji: '🙂' }, { id: 'smile', name: '미소', emoji: '😊' },
+    { id: 'open', name: '노래', emoji: '😮' }, { id: 'wink', name: '윙크', emoji: '😉' },
+  ],
+};
+export function randomActorCfg() {
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  return {
+    skin: pick(ACTOR_OPTIONS.skin), hair: pick(ACTOR_OPTIONS.hair),
+    hairStyle: pick(ACTOR_OPTIONS.hairStyle).id, shirt: pick(ACTOR_OPTIONS.shirt),
+    pants: pick(ACTOR_OPTIONS.pants), face: pick(ACTOR_OPTIONS.face).id,
+  };
+}
+
+// 공통 사람 몸체 (셔츠/바지/머리/피부/표정 지정)
+function person({ shirt = '#d94040', pants = '#31435e', hair = '#4a3626', skin = '#e8b88f', hairStyle = 'short', face = 'basic' } = {}) {
   const g = new THREE.Group();
   g.add(box(0.2, 0.6, 0.24, pants, -0.13, 0.3, 0));
   g.add(box(0.2, 0.6, 0.24, pants, 0.13, 0.3, 0));
@@ -52,12 +79,12 @@ function person({ shirt = '#d94040', pants = '#31435e', hair = '#4a3626', skin =
   g.add(box(0.16, 0.58, 0.24, shirt, -0.34, 0.93, 0));
   g.add(box(0.16, 0.58, 0.24, shirt, 0.34, 0.93, 0));
   const headMats = Array(6).fill(mat(skin));
-  headMats[4] = new THREE.MeshStandardMaterial({ map: makeFace(skin), roughness: 0.85 });
+  headMats[4] = new THREE.MeshStandardMaterial({ map: makeFace(skin, face), roughness: 0.85 });
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), headMats);
   head.position.y = 1.44; g.add(head);
   if (hairStyle === 'short') g.add(box(0.46, 0.12, 0.46, hair, 0, 1.68, 0));
   else if (hairStyle === 'long') { g.add(box(0.46, 0.12, 0.46, hair, 0, 1.68, 0)); g.add(box(0.46, 0.5, 0.14, hair, 0, 1.35, -0.2)); }
-  else if (hairStyle === 'cap') g.add(box(0.46, 0.16, 0.46, hair, 0, 1.7, 0));
+  else if (hairStyle === 'cap') { g.add(box(0.46, 0.16, 0.46, hair, 0, 1.7, 0)); g.add(box(0.46, 0.08, 0.2, hair, 0, 1.66, 0.32)); }
   return g;
 }
 
@@ -66,7 +93,7 @@ const SHIRTS = ['#d94040', '#4a7fd4', '#48a860', '#e78a2e', '#8e5bc9', '#e883b0'
 // ---------- 소품 빌더 ----------
 const builders = {
   // === 인물 ===
-  actor: (v = 0) => person({ shirt: SHIRTS[v % SHIRTS.length], hairStyle: v % 2 ? 'long' : 'short' }),
+  actor: (v = 0, cfg = null) => cfg ? person(cfg) : person({ shirt: SHIRTS[v % SHIRTS.length], hairStyle: v % 2 ? 'long' : 'short' }),
   child: () => {
     const g = person({ shirt: '#ffcf4d', pants: '#5b7', hairStyle: 'short' });
     g.scale.set(0.78, 0.78, 0.78); return g;
@@ -249,7 +276,7 @@ builders.rope = () => group(cyl(0.06, 0.08, 0.8, '#caa64a', -0.6, 0.4, 0, 10), c
 // ---------- 카테고리 정의 ----------
 export const PROP_CATEGORIES = [
   { id: 'people', name: '인물', emoji: '🧑', items: [
-    { id: 'actor', emoji: '🧍', name: '배우', desc: '무대의 주인공! 놓을 때마다 옷 색이 달라져요' },
+    { id: 'actor', emoji: '🧍', name: '배우', desc: '무대의 주인공! 아래에서 직접 꾸밀 수 있어요' },
     { id: 'child', emoji: '🧒', name: '어린이', desc: '작은 배역' },
     { id: 'singer', emoji: '🎤', name: '가수', desc: '마이크를 든 가수' },
     { id: 'dancer', emoji: '💃', name: '무용수', desc: '춤추는 배우' },
@@ -319,9 +346,9 @@ export const PROP_CATEGORIES = [
 export const PROP_INFO = {};
 for (const cat of PROP_CATEGORIES) for (const it of cat.items) PROP_INFO[it.id] = { ...it, cat: cat.id };
 
-export function buildProp(typeId, variant = 0) {
+export function buildProp(typeId, variant = 0, cfg = null) {
   const b = builders[typeId] || builders.crate;
-  const g = b(variant) || new THREE.Group();
+  const g = b(variant, cfg) || new THREE.Group();
   g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   return g;
 }
