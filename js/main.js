@@ -129,14 +129,17 @@ slabGeo.translate(0, -0.25, 0);
 const keyOf = (x, y, z) => `${x},${y},${z}`;
 const inBounds = (x, y, z) => x >= WORLD.minX && x < WORLD.maxX && y >= WORLD.minY && y < WORLD.maxY && z >= WORLD.minZ && z < WORLD.maxZ;
 
-function addBlock(x, y, z, type, shape = 'cube', record = false) {
+// layingBase=true 동안 놓이는 블록은 "무대 기본 바닥"(base)으로 표시된다.
+// 무대 종류를 바꾸면 base 블록만 새 무대 것으로 교체하고, 사용자가 추가한 블록은 남긴다.
+let layingBase = false;
+function addBlock(x, y, z, type, shape = 'cube', record = false, base = layingBase) {
   if (!inBounds(x, y, z) || blocks.has(keyOf(x, y, z)) || !BLOCKS[type]) return false;
   const mesh = new THREE.Mesh(shape === 'slab' ? slabGeo : cubeGeo, BLOCKS[type].mat);
   mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
   mesh.castShadow = true; mesh.receiveShadow = true;
   mesh.userData = { kind: 'block', x, y, z };
   blockGroup.add(mesh);
-  blocks.set(keyOf(x, y, z), { type, shape, mesh });
+  blocks.set(keyOf(x, y, z), { type, shape, mesh, base });
   if (record) pushUndo({ undo: () => removeBlock(x, y, z, false) });
   return true;
 }
@@ -147,8 +150,12 @@ function removeBlock(x, y, z, record = false) {
   blockGroup.remove(b.mesh);
   blocks.delete(k);
   if (state.selected?.kind === 'block' && state.selected.ref.x === x && state.selected.ref.y === y && state.selected.ref.z === z) clearSelection();
-  if (record) pushUndo({ undo: () => addBlock(x, y, z, b.type, b.shape, false) });
+  if (record) pushUndo({ undo: () => addBlock(x, y, z, b.type, b.shape, false, b.base) });
   return true;
+}
+// 무대 기본 바닥(base) 블록만 모두 제거 (사용자 블록은 유지)
+function removeBaseBlocks() {
+  for (const [k, b] of [...blocks]) if (b.base) { const [x, y, z] = k.split(',').map(Number); removeBlock(x, y, z); }
 }
 
 // ---------------- 환경(무대 배경) 헬퍼 ----------------
@@ -574,7 +581,7 @@ function buildEnvironment(id) {
   updateArenaCard();
   document.getElementById('stageSelect').value = id;
 }
-function layStarter(id) { PRESETS[id].starter(); }
+function layStarter(id) { layingBase = true; PRESETS[id].starter(); layingBase = false; }
 
 // ---------------- 간격 눈금 (야광 스파이크 테이프) ----------------
 let marksGroup = null;
@@ -1216,12 +1223,12 @@ function onLeftClick(ev) {
     if (state.blockShape === 'erase') {
       const hit = pick(ev, blockGroup.children); if (!hit) return;
       const c = cellFromHit(hit, true);
-      if (removeBlock(c.x, c.y, c.z, true)) { blip(320); markDirty(); }
+      if (removeBlock(c.x, c.y, c.z, true)) { blip(320); markDirty(); renderElementList(); }
       return;
     }
     const hit = pick(ev, [...blockGroup.children, groundPlane]); if (!hit) return;
     const c = cellFromHit(hit);
-    if (addBlock(c.x, c.y, c.z, state.blockType, state.blockShape, true)) { blip(540); markDirty(); }
+    if (addBlock(c.x, c.y, c.z, state.blockType, state.blockShape, true)) { blip(540); markDirty(); renderElementList(); }
   } else if (state.mode === 'light') {
     const hitFix = pick(ev, lightGroup.children);
     if (hitFix) { const Lg = lights.find(l => l.id === hitFix.object.userData.lightId); if (Lg) { selectElement('light', Lg); return; } }
@@ -1610,9 +1617,9 @@ function updateArenaCard() {
 }
 function relayArena(shape) {
   if (proj.preset !== 'arena') return;
-  if (shape === proj.arenaShape && blocks.size) return;
-  if (blocks.size && !confirm('무대 바닥을 새 모양으로 다시 깔까요?\n(쌓은 블록은 사라지고 소품·조명은 그대로 남아요)')) { updateArenaCard(); return; }
-  for (const [k] of [...blocks]) { const [x, y, z] = k.split(',').map(Number); removeBlock(x, y, z); }
+  const hasBase = [...blocks.values()].some(b => b.base);
+  if (shape === proj.arenaShape && hasBase) return;
+  removeBaseBlocks();          // 기본 바닥만 다시 깔기 (직접 놓은 블록·소품은 유지)
   proj.arenaShape = shape;
   layStarter('arena');
   updateArenaCard(); markDirty(); renderElementList(); blip(600);
@@ -1724,7 +1731,7 @@ function freshScene(name) { return { name, blocks: [], lights: [], props: [], im
 function serializeScene() {
   return {
     name: proj.scenes[proj.active].name,
-    blocks: [...blocks.entries()].map(([k, b]) => { const [x, y, z] = k.split(',').map(Number); return [x, y, z, b.type, b.shape === 'slab' ? 1 : 0]; }),
+    blocks: [...blocks.entries()].map(([k, b]) => { const [x, y, z] = k.split(',').map(Number); return [x, y, z, b.type, b.shape === 'slab' ? 1 : 0, b.base ? 1 : 0]; }),
     lights: lights.map(serializeLight),
     props: props.map(p => ({ type: p.type, x: p.pos.x, y: p.pos.y, z: p.pos.z, rot: p.rot, variant: p.variant, scale: p.scale, cfg: p.cfg, name: p.name, hide: p.hide })),
     images: images.map(im => ({ src: im.src, aspect: im.aspect, scale: im.scale, rot: im.rot, name: im.name, hide: im.hide, x: im.pos.x, y: im.pos.y, z: im.pos.z })),
@@ -1742,7 +1749,7 @@ function clearLive() {
 }
 function hydrateScene(s) {
   clearLive();
-  for (const [x, y, z, type, slab] of s.blocks ?? []) addBlock(x, y, z, type, slab ? 'slab' : 'cube');
+  for (const [x, y, z, type, slab, base] of s.blocks ?? []) addBlock(x, y, z, type, slab ? 'slab' : 'cube', false, !!base);
   for (const l of s.lights ?? []) createLight(l, false);
   for (const p of s.props ?? []) addPropRaw(p.type, p.x, p.y, p.z, p.rot, p.variant, false, { scale: p.scale, cfg: p.cfg, name: p.name, hide: p.hide });
   for (const im of s.images ?? []) addImageRaw(im);
@@ -2007,10 +2014,13 @@ performPill.addEventListener('click', () => {
 document.getElementById('stageSelect').addEventListener('change', ev => {
   const id = ev.target.value;
   if (id === proj.preset) return;
-  if (!confirm(`무대를 "${PRESETS[id].name}"(으)로 바꿀까요?\n만든 블록·소품은 그대로 남아요.`)) { ev.target.value = proj.preset; return; }
+  if (!confirm(`무대를 "${PRESETS[id].name}"(으)로 바꿀까요?\n기본 무대는 새 모양으로 바뀌고, 직접 놓은 소품·조명·블록은 그대로 남아요.`)) { ev.target.value = proj.preset; return; }
   if (state.selected?.kind === 'seats') clearSelection();
   proj.preset = id; proj.seatTransform = { x: 0, z: 0, rot: 0 }; state.markCenter = null;
-  buildEnvironment(id); markDirty(); toast(`${PRESETS[id].emoji} ${PRESETS[id].name}로 바꿨어요!`);
+  removeBaseBlocks();          // 이전 무대 기본 바닥 제거 (사용자 블록은 유지)
+  buildEnvironment(id);
+  layStarter(id);              // 새 무대 기본 바닥 깔기
+  markDirty(); renderElementList(); toast(`${PRESETS[id].emoji} ${PRESETS[id].name}로 바꿨어요!`);
 });
 
 document.getElementById('btnShot').addEventListener('click', () => {
