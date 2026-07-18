@@ -534,3 +534,14 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); cursor: p
 .edu-sources ul { margin: 0 0 0 18px !important; }
 .edu-sources li { font-size: 12.5px; color: var(--color-gray-500); margin-bottom: 4px !important; }
 .edu-sources a { color: var(--color-primary); }
+
+/* ============ v5 추가 컴포넌트 ============ */
+/* 드래그 선택 사각형 */
+#marquee {
+  position: absolute; z-index: 18; pointer-events: none;
+  border: 2px dashed var(--color-primary);
+  background: rgba(0,109,210,.12); border-radius: 4px;
+}
+/* 여러 개 선택 모드 버튼 활성 */
+#tgBoxSelect.mode-on { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+#multiPanel .ep-actions { margin-bottom: 8px; }

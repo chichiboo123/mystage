@@ -87,9 +87,16 @@
           </div>
         </div>
         <div class="pal-card">
+          <h3><span class="material-icons-outlined">select_all</span>여러 개 편집</h3>
+          <p class="pal-help">버튼을 켜고 무대를 <b>드래그</b>하면 여러 요소를 한 번에 선택해요.</p>
+          <button id="tgBoxSelect" class="btn secondary wide"><span class="material-icons-outlined">highlight_alt</span>여러 개 선택 모드</button>
+        </div>
+        <div class="pal-card">
           <h3><span class="material-icons-outlined">tune</span>화면 옵션</h3>
           <label class="opt-row"><span>📍 무대 구역 이름 보기</span><button id="tgZones" class="switch" role="switch" aria-checked="false"></button></label>
+          <label class="opt-row"><span>📏 간격 눈금(야광 테이프)</span><button id="tgMarks" class="switch" role="switch" aria-checked="false"></button></label>
           <label class="opt-row"><span>🪑 객석 보이기</span><button id="tgSeats" class="switch on" role="switch" aria-checked="true"></button></label>
+          <p class="pal-help" style="margin:6px 0 0">객석을 <b>클릭</b>하면 통째로 옮기거나 돌릴 수 있어요.</p>
         </div>
         <div class="pal-card">
           <h3><span class="material-icons-outlined">checklist</span>내가 놓은 것들</h3>
@@ -243,7 +250,25 @@
         <p class="pal-help">이 배우를 다시 꾸며요.</p>
         <div id="epActorChips"></div>
       </div>
+      <div id="epSeatSec" class="hidden">
+        <button id="epSeatReset" class="btn secondary wide"><span class="material-icons-outlined">restart_alt</span>객석 위치 되돌리기</button>
+      </div>
     </div>
+
+    <!-- 여러 개 선택 편집 팝업 -->
+    <div id="multiPanel" class="side-panel hidden">
+      <div class="sp-head"><span id="mpTitle">여러 개 선택</span><button class="sp-close" data-close="multiPanel" title="닫기"><span class="material-icons-outlined">close</span></button></div>
+      <div class="ep-actions">
+        <button id="mpMove" class="btn secondary"><span class="material-icons-outlined">open_with</span>함께 이동</button>
+        <button id="mpRotate" class="btn secondary"><span class="material-icons-outlined">rotate_right</span>회전</button>
+        <button id="mpDup" class="btn secondary"><span class="material-icons-outlined">content_copy</span>복제</button>
+        <button id="mpDelete" class="btn danger"><span class="material-icons-outlined">delete</span>모두 삭제</button>
+      </div>
+      <p class="pal-help" style="margin:0">💡 <b>함께 이동</b>을 누르고 옮길 곳을 클릭하면 선택한 요소가 간격을 유지한 채 함께 움직여요.</p>
+    </div>
+
+    <!-- 드래그 선택 사각형 -->
+    <div id="marquee" class="hidden"></div>
 
     <!-- 플로팅 요소 목록 -->
     <div id="floatList" class="side-panel float-list hidden">

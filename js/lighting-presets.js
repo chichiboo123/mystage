@@ -11,9 +11,9 @@ function L(type, pos, target, color, intensity, angle) {
 function top(fr, dx, dz, color, intensity = 5, angle = 24, type = 'spot') {
   return L(type, [fr.cx + dx, fr.gridY, fr.cz + dz + 1], [fr.cx + dx, fr.cy, fr.cz + dz], color, intensity, angle);
 }
-// 바닥에서 위로 쏘는 업라이트
+// 바닥에서 위로 쏘는 업라이트 (기구는 바닥에 납작하게 매입)
 function up(fr, dx, dz, color, intensity = 4, angle = 34) {
-  return L('floor', [fr.cx + dx, fr.cy + 0.15, fr.cz + dz], [fr.cx + dx, fr.cy + 6, fr.cz + dz], color, intensity, angle);
+  return L('floor', [fr.cx + dx, fr.cy + 0.05, fr.cz + dz], [fr.cx + dx, fr.cy + 6, fr.cz + dz], color, intensity, angle);
 }
 // 객석 쪽(프론트)에서 무대를 비추는 조명
 function foh(fr, dx, color, intensity = 5, angle = 20, type = 'spot') {
