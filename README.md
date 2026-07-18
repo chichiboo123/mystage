@@ -3,7 +3,7 @@
 어린이·청소년·선생님을 위한 **3D 무대 디자인 웹앱**입니다.
 마인크래프트처럼 블록을 쌓고, 진짜 극장처럼 조명을 달아 누구나 나만의 무대를 상상하고 만들어 볼 수 있어요.
 
-**▶ 바로 사용하기: https://chichiboo123.github.io/stagedesign/**
+**▶ 바로 사용하기: https://chichiboo123.github.io/mystage/**
 
 ![공연 모드](docs/perform-mode.png)
 
