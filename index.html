@@ -95,6 +95,13 @@
           <h3><span class="material-icons-outlined">tune</span>화면 옵션</h3>
           <label class="opt-row"><span>📍 무대 구역 이름 보기</span><button id="tgZones" class="switch" role="switch" aria-checked="false"></button></label>
           <label class="opt-row"><span>📏 간격 눈금(야광 테이프)</span><button id="tgMarks" class="switch" role="switch" aria-checked="false"></button></label>
+          <div id="markCenterRow" class="hidden">
+            <div class="mini-btns">
+              <button id="btnSetCenter" class="btn secondary"><span class="material-icons-outlined">my_location</span>무대 센터 지정</button>
+              <button id="btnCenterAuto" class="btn ghost" title="센터를 무대 기본 중앙으로">↺ 자동</button>
+            </div>
+            <p class="pal-help" style="margin:6px 0 0">'무대 센터 지정'을 누르고 무대를 클릭하면 그 지점을 센터(0)로 눈금이 다시 그려져요.</p>
+          </div>
           <label class="opt-row"><span>🪑 객석 보이기</span><button id="tgSeats" class="switch on" role="switch" aria-checked="true"></button></label>
           <p class="pal-help" style="margin:6px 0 0">객석을 <b>클릭</b>하면 통째로 옮기거나 돌릴 수 있어요.</p>
         </div>
@@ -107,6 +114,15 @@
 
       <!-- 만들기 (블록) -->
       <div class="pal-page hidden" data-mode="block">
+        <div id="arenaShapeCard" class="pal-card hidden">
+          <h3><span class="material-icons-outlined">interests</span>사방 객석 바닥 모양</h3>
+          <p class="pal-help">객석 한가운데에 놓일 무대 바닥 모양을 골라요.</p>
+          <div class="shape-toggle">
+            <button class="arena-shape active" data-ashape="circle">⭕<span>원</span></button>
+            <button class="arena-shape" data-ashape="square">⬛<span>사각형</span></button>
+            <button class="arena-shape" data-ashape="diamond">🔷<span>마름모</span></button>
+          </div>
+        </div>
         <div class="pal-card">
           <h3><span class="material-icons-outlined">handyman</span>도구</h3>
           <div class="shape-toggle">

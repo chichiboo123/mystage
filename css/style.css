@@ -545,3 +545,17 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); cursor: p
 /* 여러 개 선택 모드 버튼 활성 */
 #tgBoxSelect.mode-on { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
 #multiPanel .ep-actions { margin-bottom: 8px; }
+
+/* ============ v7 추가 컴포넌트 ============ */
+.mini-btns { display: flex; gap: 6px; margin-top: 8px; }
+.mini-btns .btn { flex: 1; padding: 7px 6px; font-size: 12.5px; }
+.mini-btns .btn.ghost { flex: 0 0 auto; }
+#btnSetCenter.mode-on { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.arena-shape {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 9px 4px; border-radius: var(--border-radius-md); cursor: pointer;
+  background: var(--color-gray-100); color: var(--color-gray-700);
+  border: 2px solid var(--color-gray-200); font-size: 18px;
+}
+.arena-shape span { font-size: 12px; font-weight: 700; }
+.arena-shape.active { border-color: var(--color-primary); background: var(--color-primary-light); color: var(--color-primary); }
