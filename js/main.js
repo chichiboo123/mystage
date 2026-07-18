@@ -477,11 +477,18 @@ const PRESETS = {
     },
     starter() { platform(-9, 9, -14, -7, 'wood', 'darkwood'); platform(-5, 6, -7, 6, 'wood', 'darkwood'); },
     seats() {
-      const list = [];
+      // 돌출부(x -5~6, 앞쪽 z=6)에서 넉넉히 떨어뜨려 관객 시야를 확보
+      const list = []; const cx = 0.5;
+      // 정면 객석 (돌출부 앞)
+      for (let row = 0; row < 5; row++)
+        for (let n = -6; n <= 6; n++) { if (n === 0) continue; list.push({ x: cx + n * 1.5, y: 0, z: 10.5 + row * 1.9, rot: Math.PI }); }
+      // 좌우 객석 (돌출부 양옆)
       for (let row = 0; row < 4; row++) {
-        const off = 7.5 + row * 1.8;
-        for (let z = -6; z <= 6; z += 1.6) { list.push({ x: -off + 0.5, y: 0, z, rot: Math.PI / 2 }); list.push({ x: off + 0.5, y: 0, z, rot: -Math.PI / 2 }); }
-        for (let x = -6; x <= 6; x += 1.6) { if (Math.abs(x) < 0.8) continue; list.push({ x: x + 0.5, y: 0, z: 8.5 + row * 1.8, rot: Math.PI }); }
+        const off = 10.5 + row * 1.8;
+        for (let z = -6; z <= 8; z += 1.7) {
+          list.push({ x: cx - off, y: 0, z, rot: Math.PI / 2 });
+          list.push({ x: cx + off, y: 0, z, rot: -Math.PI / 2 });
+        }
       }
       return list;
     },
@@ -1294,9 +1301,23 @@ function updateMarqueeEl(cx, cy) {
 }
 
 // ---------------- 여러 개 선택 (드래그 박스) ----------------
+const multiHLGroup = new THREE.Group(); scene.add(multiHLGroup); // 블록 선택 표시(와이어프레임)
+const multiHLMat = new THREE.MeshBasicMaterial({ color: 0x3b9bff, wireframe: true, transparent: true, opacity: 0.9 });
+function rebuildBlockHL() {
+  multiHLGroup.clear();
+  for (const it of state.multi) {
+    if (it.kind !== 'block') continue;
+    const b = blocks.get(keyOf(it.ref.x, it.ref.y, it.ref.z)); if (!b) continue;
+    const box = new THREE.Mesh(b.shape === 'slab' ? slabGeo : cubeGeo, multiHLMat);
+    box.scale.setScalar(1.04); box.position.set(it.ref.x + 0.5, it.ref.y + 0.5, it.ref.z + 0.5);
+    box.raycast = () => {}; multiHLGroup.add(box);
+  }
+}
 function clearMulti() {
-  for (const it of state.multi) { if (it.kind === 'light') fixtureHL(it.ref, false); else setHL(it.ref.group, false); }
+  for (const it of state.multi) { if (it.kind === 'light') fixtureHL(it.ref, false); else if (it.kind !== 'block' && it.ref.group) setHL(it.ref.group, false); }
   state.multi = []; state.multiMove = false;
+  multiHLGroup.clear();
+  document.getElementById('mpMove').classList.remove('mode-on');
   hidePanel('multiPanel');
 }
 const _v = new THREE.Vector3();
@@ -1305,6 +1326,7 @@ function screenOf(worldPos) {
   _v.copy(worldPos).project(camera);
   return { x: r.left + (_v.x * 0.5 + 0.5) * r.width, y: r.top + (-_v.y * 0.5 + 0.5) * r.height, behind: _v.z > 1 };
 }
+function itemPos(it) { return it.kind === 'block' ? new THREE.Vector3(it.ref.x + 0.5, it.ref.y + 0.5, it.ref.z + 0.5) : it.ref.pos.clone(); }
 function doBoxSelect(x0, y0, x1, y1) {
   clearSelection();
   const minx = Math.min(x0, x1), maxx = Math.max(x0, x1), miny = Math.min(y0, y1), maxy = Math.max(y0, y1);
@@ -1313,17 +1335,21 @@ function doBoxSelect(x0, y0, x1, y1) {
   for (const P of props) if (inside(P.pos.clone().setY(P.pos.y + 0.6))) picked.push({ kind: 'prop', ref: P });
   for (const I of images) if (inside(I.pos.clone().setY(I.pos.y + 1))) picked.push({ kind: 'image', ref: I });
   for (const Lg of lights) if (inside(Lg.pos.clone())) picked.push({ kind: 'light', ref: Lg });
-  if (!picked.length) { toast('선택된 요소가 없어요'); return; }
+  for (const [k, b] of blocks) { const [x, y, z] = k.split(',').map(Number); if (inside(new THREE.Vector3(x + 0.5, y + (b.shape === 'slab' ? 0.25 : 0.5), z + 0.5))) picked.push({ kind: 'block', ref: { x, y, z } }); }
+  if (!picked.length) { toast('선택된 요소가 없어요 — 요소 위로 드래그해 보세요'); return; }
   state.multi = picked;
-  for (const it of picked) { if (it.kind === 'light') fixtureHL(it.ref, true); else setHL(it.ref.group, true); }
+  for (const it of picked) { if (it.kind === 'light') fixtureHL(it.ref, true); else if (it.kind !== 'block') setHL(it.ref.group, true); }
+  rebuildBlockHL();
+  const nB = picked.filter(it => it.kind === 'block').length;
+  const nOther = picked.length - nB;
   document.getElementById('mpTitle').textContent = `여러 개 선택 (${picked.length}개)`;
   showPanel('multiPanel');
-  setHint(`${picked.length}개를 선택했어요 · 함께 이동·회전·복제·삭제할 수 있어요`);
+  setHint(`${nOther ? `요소 ${nOther}개` : ''}${nOther && nB ? ' + ' : ''}${nB ? `블록 ${nB}개` : ''}를 선택했어요`);
   blip(700);
 }
 function multiCentroid() {
   const c = new THREE.Vector3();
-  for (const it of state.multi) c.add(it.ref.pos);
+  for (const it of state.multi) c.add(itemPos(it));
   return c.multiplyScalar(1 / state.multi.length);
 }
 document.getElementById('mpMove').addEventListener('click', function () {
@@ -1342,20 +1368,29 @@ document.getElementById('mpRotate').addEventListener('click', () => {
 });
 document.getElementById('mpDelete').addEventListener('click', () => {
   if (!state.multi.length) return;
-  const snap = state.multi.map(it => ({ kind: it.kind, data: it.kind === 'light' ? serializeLight(it.ref) : it.kind === 'prop' ? serializeProp(it.ref) : serializeImageEl(it.ref) }));
-  for (const it of [...state.multi]) { if (it.kind === 'light') deleteLight(it.ref, false); else if (it.kind === 'prop') deleteProp(it.ref, false); else deleteImage(it.ref, false); }
-  pushUndo({ undo: () => snap.forEach(s => recreateEl(s.kind, s.data)) });
-  toast(`🗑️ ${state.multi.length}개를 삭제했어요`); clearMulti(); markDirty(); renderElementList(); blip(320);
+  const snap = state.multi.map(it => it.kind === 'block'
+    ? { kind: 'block', data: { ...blocks.get(keyOf(it.ref.x, it.ref.y, it.ref.z)), x: it.ref.x, y: it.ref.y, z: it.ref.z } }
+    : { kind: it.kind, data: it.kind === 'light' ? serializeLight(it.ref) : it.kind === 'prop' ? serializeProp(it.ref) : serializeImageEl(it.ref) });
+  const n = state.multi.length;
+  for (const it of [...state.multi]) {
+    if (it.kind === 'light') deleteLight(it.ref, false);
+    else if (it.kind === 'prop') deleteProp(it.ref, false);
+    else if (it.kind === 'image') deleteImage(it.ref, false);
+    else removeBlock(it.ref.x, it.ref.y, it.ref.z, false);
+  }
+  pushUndo({ undo: () => { snap.forEach(s => recreateEl(s.kind, s.data)); renderElementList(); } });
+  toast(`🗑️ ${n}개를 삭제했어요`); clearMulti(); markDirty(); renderElementList(); blip(320);
 });
 document.getElementById('mpDup').addEventListener('click', () => {
   if (!state.multi.length) return;
   const created = [];
   for (const it of state.multi) {
-    if (it.kind === 'prop') { const P = it.ref; created.push(addPropRaw(P.type, P.pos.x + 1, P.pos.y, P.pos.z + 0.5, P.rot, P.variant, false, { scale: P.scale, cfg: P.cfg ? { ...P.cfg } : null })); }
-    else if (it.kind === 'image') { const I = it.ref; created.push(addImageRaw({ src: I.src, tex: I.tex, aspect: I.aspect, scale: I.scale, rot: I.rot, x: I.pos.x + 1, y: I.pos.y, z: I.pos.z + 0.5 }, false)); }
-    else if (it.kind === 'light') { const d = serializeLight(it.ref); delete d.id; d.presetId = null; d.name = null; d.pos = [d.pos[0] + 1.2, d.pos[1], d.pos[2]]; d.target = [d.target[0] + 1.2, d.target[1], d.target[2]]; created.push(createLight(d, false)); }
+    if (it.kind === 'prop') { const P = it.ref; created.push({ kind: 'prop', el: addPropRaw(P.type, P.pos.x + 1, P.pos.y, P.pos.z + 0.5, P.rot, P.variant, false, { scale: P.scale, cfg: P.cfg ? { ...P.cfg } : null }) }); }
+    else if (it.kind === 'image') { const I = it.ref; created.push({ kind: 'image', el: addImageRaw({ src: I.src, tex: I.tex, aspect: I.aspect, scale: I.scale, rot: I.rot, x: I.pos.x + 1, y: I.pos.y, z: I.pos.z + 0.5 }, false) }); }
+    else if (it.kind === 'light') { const d = serializeLight(it.ref); delete d.id; d.presetId = null; d.name = null; d.pos = [d.pos[0] + 1.2, d.pos[1], d.pos[2]]; d.target = [d.target[0] + 1.2, d.target[1], d.target[2]]; created.push({ kind: 'light', el: createLight(d, false) }); }
+    else { const b = blocks.get(keyOf(it.ref.x, it.ref.y, it.ref.z)); const nx = it.ref.x + 1, nz = it.ref.z + 1; if (b && inBounds(nx, it.ref.y, nz) && !blocks.has(keyOf(nx, it.ref.y, nz))) { addBlock(nx, it.ref.y, nz, b.type, b.shape); created.push({ kind: 'block', pos: { x: nx, y: it.ref.y, z: nz } }); } }
   }
-  pushUndo({ undo: () => created.forEach(el => { if (!el) return; if (el.spot) deleteLight(el, false); else if (props.includes(el)) deleteProp(el, false); else deleteImage(el, false); }) });
+  pushUndo({ undo: () => { created.forEach(c => { if (c.kind === 'block') removeBlock(c.pos.x, c.pos.y, c.pos.z, false); else if (!c.el) {} else if (c.kind === 'light') deleteLight(c.el, false); else if (c.kind === 'prop') deleteProp(c.el, false); else deleteImage(c.el, false); }); renderElementList(); } });
   toast(`⧉ ${created.length}개를 복제했어요`); markDirty(); renderElementList(); blip(620);
 });
 
@@ -1365,21 +1400,43 @@ function serializeImageEl(I) { return { src: I.src, aspect: I.aspect, scale: I.s
 function recreateEl(kind, d) {
   if (kind === 'light') createLight(d, false);
   else if (kind === 'prop') addPropRaw(d.type, d.x, d.y, d.z, d.rot, d.variant, false, { scale: d.scale, cfg: d.cfg, name: d.name, hide: d.hide });
+  else if (kind === 'block') addBlock(d.x, d.y, d.z, d.type, d.shape);
   else addImageRaw(d, false);
-  renderElementList();
 }
 function moveMultiTo(point) {
   if (!state.multi.length) return;
   const c = multiCentroid();
   const dx = point.x - c.x, dz = point.z - c.z;
-  const olds = state.multi.map(it => it.ref.pos.clone());
+  const blockItems = state.multi.filter(it => it.kind === 'block');
+  const gdx = Math.round(dx), gdz = Math.round(dz);
+  // 블록 이동 사전 검증 (범위 밖·다른 블록과 충돌 시 전체 취소)
+  if (blockItems.length && (gdx || gdz)) {
+    const selKeys = new Set(blockItems.map(it => keyOf(it.ref.x, it.ref.y, it.ref.z)));
+    for (const it of blockItems) {
+      const nx = it.ref.x + gdx, ny = it.ref.y, nz = it.ref.z + gdz, nk = keyOf(nx, ny, nz);
+      if (!inBounds(nx, ny, nz) || (blocks.has(nk) && !selKeys.has(nk))) { toast('그쪽으로는 옮길 수 없어요'); return; }
+    }
+  }
+  const olds = state.multi.map(it => it.kind === 'block' ? { x: it.ref.x, y: it.ref.y, z: it.ref.z } : it.ref.pos.clone());
+  // 블록: 정보 저장 → 제거 → 재배치
+  const bData = blockItems.map(it => { const b = blocks.get(keyOf(it.ref.x, it.ref.y, it.ref.z)); return { it, type: b.type, shape: b.shape, ox: it.ref.x, oy: it.ref.y, oz: it.ref.z }; });
+  for (const bd of bData) removeBlock(bd.ox, bd.oy, bd.oz);
+  for (const bd of bData) { addBlock(bd.ox + gdx, bd.oy, bd.oz + gdz, bd.type, bd.shape); bd.it.ref = { x: bd.ox + gdx, y: bd.oy, z: bd.oz + gdz }; }
+  // 소품·이미지·조명
   for (const it of state.multi) {
+    if (it.kind === 'block') continue;
     it.ref.pos.x = snapHalf(it.ref.pos.x + dx); it.ref.pos.z = snapHalf(it.ref.pos.z + dz);
     if (it.kind === 'light') updateLightVisual(it.ref); else it.ref.group.position.copy(it.ref.pos);
   }
-  pushUndo({ undo: () => state.multi.forEach((it, i) => { it.ref.pos.copy(olds[i]); if (it.kind === 'light') updateLightVisual(it.ref); else it.ref.group.position.copy(it.ref.pos); }) });
+  rebuildBlockHL();
+  pushUndo({ undo: () => {
+    for (const bd of bData) removeBlock(bd.ox + gdx, bd.oy, bd.oz + gdz);
+    for (const bd of bData) { addBlock(bd.ox, bd.oy, bd.oz, bd.type, bd.shape); bd.it.ref = { x: bd.ox, y: bd.oy, z: bd.oz }; }
+    state.multi.forEach((it, i) => { if (it.kind !== 'block') { it.ref.pos.copy(olds[i]); if (it.kind === 'light') updateLightVisual(it.ref); else it.ref.group.position.copy(it.ref.pos); } });
+    rebuildBlockHL(); renderElementList();
+  } });
   state.multiMove = false; document.getElementById('mpMove').classList.remove('mode-on');
-  blip(560); markDirty(); updateHint();
+  blip(560); markDirty(); renderElementList(); updateHint();
 }
 document.getElementById('tgBoxSelect').addEventListener('click', function () {
   state.boxSelect = !state.boxSelect;
