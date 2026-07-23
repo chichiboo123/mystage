@@ -39,6 +39,7 @@ const state = {
   selected: null, retargeting: false, moveMode: false, dirty: false,
   boxSelect: false, multi: [], multiMove: false,
   cueMul: 1, cueTransition: null,
+  baseErasable: false, // 켜면 기본 무대 바닥(base 블록)도 여느 블록처럼 지울 수 있다
 };
 
 const proj = { preset: 'proscenium', house: 0.7, active: 0, scenes: [], seatTransform: { x: 0, z: 0, rot: 0 }, arenaShape: 'circle' };
@@ -157,6 +158,13 @@ function removeBlock(x, y, z, record = false) {
 function removeBaseBlocks() {
   for (const [k, b] of [...blocks]) if (b.base) { const [x, y, z] = k.split(',').map(Number); removeBlock(x, y, z); }
 }
+// 기본 무대 바닥 잠금: 옵션이 꺼져 있으면 base 블록은 사용자가 지울 수 없다
+function baseLocked(x, y, z) {
+  if (state.baseErasable) return false;
+  const b = blocks.get(keyOf(x, y, z));
+  return !!(b && b.base);
+}
+const BASE_LOCK_MSG = '🔒 기본 무대는 잠겨 있어요 — "보기 › 화면 옵션 › 기본 무대도 지우기"를 켜면 지울 수 있어요';
 
 // ---------------- 환경(무대 배경) 헬퍼 ----------------
 const envMat = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, ...opts });
@@ -970,6 +978,7 @@ function selectElement(kind, ref) {
   renderElementList();
   if (kind === 'seats') setHint('🪑 객석 선택! 이동·회전으로 통째로 옮겨 보세요');
   else if (kind !== 'block') setHint('한 번 더 클릭하면 삭제 · 패널에서 이동·회전·복제할 수 있어요');
+  else if (baseLocked(ref.x, ref.y, ref.z)) setHint('🔒 기본 무대 블록이에요 — 색은 바꿀 수 있지만 지우려면 화면 옵션을 켜세요');
   else setHint('🧱 블록 선택! 패널에서 다른 블록으로 바꾸거나 삭제할 수 있어요');
 }
 function deleteSelected() {
@@ -977,7 +986,10 @@ function deleteSelected() {
   if (s.kind === 'light') { deleteLight(s.ref); toast('조명을 뗐어요'); }
   else if (s.kind === 'prop') { deleteProp(s.ref); toast('소품을 치웠어요'); }
   else if (s.kind === 'image') { deleteImage(s.ref); toast('이미지를 뺐어요'); }
-  else if (s.kind === 'block') { removeBlock(s.ref.x, s.ref.y, s.ref.z, true); toast('블록을 지웠어요'); }
+  else if (s.kind === 'block') {
+    if (baseLocked(s.ref.x, s.ref.y, s.ref.z)) { toast(BASE_LOCK_MSG); return; }
+    removeBlock(s.ref.x, s.ref.y, s.ref.z, true); toast('블록을 지웠어요');
+  }
   blip(320); markDirty(); renderElementList();
 }
 
@@ -1007,7 +1019,7 @@ function openEditPanel() {
   ep.move.classList.remove('hidden');
   ep.rotate.classList.toggle('hidden', kind === 'light' || kind === 'block');
   ep.dup.classList.toggle('hidden', kind === 'block' || kind === 'seats');
-  ep.del.classList.toggle('hidden', kind === 'seats');
+  ep.del.classList.toggle('hidden', kind === 'seats' || (kind === 'block' && baseLocked(ref.x, ref.y, ref.z)));
   ep.scaleRow.classList.toggle('hidden', kind === 'light' || kind === 'block' || kind === 'seats');
   ep.lightSec.classList.toggle('hidden', kind !== 'light');
   ep.blockSec.classList.toggle('hidden', kind !== 'block');
@@ -1112,9 +1124,9 @@ function moveSelectedTo(point, hit) {
     const c = cellFromHit(hit);
     if (!inBounds(c.x, c.y, c.z) || blocks.has(keyOf(c.x, c.y, c.z))) { toast('그 자리에는 놓을 수 없어요'); return; }
     const b = blocks.get(keyOf(ref.x, ref.y, ref.z)); if (!b) return;
-    const old = { ...ref };
-    removeBlock(ref.x, ref.y, ref.z); addBlock(c.x, c.y, c.z, b.type, b.shape);
-    pushUndo({ undo: () => { removeBlock(c.x, c.y, c.z); addBlock(old.x, old.y, old.z, b.type, b.shape); } });
+    const old = { ...ref }, wasBase = b.base;
+    removeBlock(ref.x, ref.y, ref.z); addBlock(c.x, c.y, c.z, b.type, b.shape, false, wasBase);
+    pushUndo({ undo: () => { removeBlock(c.x, c.y, c.z); addBlock(old.x, old.y, old.z, b.type, b.shape, false, wasBase); } });
     state.selected = { kind: 'block', ref: c };
     selBox.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); selBox.visible = true;
   } else if (s.kind === 'prop' || s.kind === 'image') {
@@ -1152,6 +1164,7 @@ const snapHalf = (v) => Math.round(v * 2) / 2;
 
 const ghostMatAdd = new THREE.MeshBasicMaterial({ color: 0x7dff9a, transparent: true, opacity: 0.35, depthWrite: false });
 const ghostMatErase = new THREE.MeshBasicMaterial({ color: 0xff5a4e, transparent: true, opacity: 0.4, depthWrite: false });
+const ghostMatLock = new THREE.MeshBasicMaterial({ color: 0x4a7fd4, transparent: true, opacity: 0.32, depthWrite: false });
 const ghost = new THREE.Mesh(cubeGeo, ghostMatAdd);
 ghost.visible = false; ghost.raycast = () => {}; scene.add(ghost);
 
@@ -1176,7 +1189,7 @@ function onHover(ev) {
       const hit = pick(ev, blockGroup.children); if (!hit) return;
       const c = cellFromHit(hit, true);
       const b = blocks.get(keyOf(c.x, c.y, c.z)); if (!b) return;
-      ghost.material = ghostMatErase;
+      ghost.material = baseLocked(c.x, c.y, c.z) ? ghostMatLock : ghostMatErase;
       ghost.geometry = b.shape === 'slab' ? slabGeo : cubeGeo;
       ghost.position.set(c.x + 0.5, c.y + 0.5, c.z + 0.5); ghost.visible = true;
       return;
@@ -1223,6 +1236,7 @@ function onLeftClick(ev) {
     if (state.blockShape === 'erase') {
       const hit = pick(ev, blockGroup.children); if (!hit) return;
       const c = cellFromHit(hit, true);
+      if (baseLocked(c.x, c.y, c.z)) { toast(BASE_LOCK_MSG); return; }
       if (removeBlock(c.x, c.y, c.z, true)) { blip(320); markDirty(); renderElementList(); }
       return;
     }
@@ -1274,7 +1288,7 @@ function onRightClick(ev) {
   if (ud.kind === 'fixture') { const Lg = lights.find(l => l.id === ud.lightId); if (Lg) { deleteLight(Lg); toast('조명을 뗐어요'); blip(320); markDirty(); } }
   else if (ud.kind === 'prop') { const P = props.find(p => p.id === ud.propId); if (P) { deleteProp(P); blip(320); markDirty(); } }
   else if (ud.kind === 'image') { const I = images.find(im => im.id === ud.imageId); if (I) { deleteImage(I); blip(320); markDirty(); } }
-  else if (ud.kind === 'block' && !isSelectMode()) { const c = cellFromHit(hit, true); if (removeBlock(c.x, c.y, c.z, true)) { blip(320); markDirty(); } }
+  else if (ud.kind === 'block' && !isSelectMode()) { const c = cellFromHit(hit, true); if (baseLocked(c.x, c.y, c.z)) { toast(BASE_LOCK_MSG); } else if (removeBlock(c.x, c.y, c.z, true)) { blip(320); markDirty(); } }
   renderElementList();
 }
 
@@ -1389,18 +1403,23 @@ document.getElementById('mpRotate').addEventListener('click', () => {
 });
 document.getElementById('mpDelete').addEventListener('click', () => {
   if (!state.multi.length) return;
-  const snap = state.multi.map(it => it.kind === 'block'
+  // 잠긴 기본 무대 바닥은 삭제 대상에서 빼고 남겨 둔다
+  const targets = state.multi.filter(it => !(it.kind === 'block' && baseLocked(it.ref.x, it.ref.y, it.ref.z)));
+  const lockedCount = state.multi.length - targets.length;
+  if (!targets.length) { toast(BASE_LOCK_MSG); return; }
+  const snap = targets.map(it => it.kind === 'block'
     ? { kind: 'block', data: { ...blocks.get(keyOf(it.ref.x, it.ref.y, it.ref.z)), x: it.ref.x, y: it.ref.y, z: it.ref.z } }
     : { kind: it.kind, data: it.kind === 'light' ? serializeLight(it.ref) : it.kind === 'prop' ? serializeProp(it.ref) : serializeImageEl(it.ref) });
-  const n = state.multi.length;
-  for (const it of [...state.multi]) {
+  const n = targets.length;
+  for (const it of targets) {
     if (it.kind === 'light') deleteLight(it.ref, false);
     else if (it.kind === 'prop') deleteProp(it.ref, false);
     else if (it.kind === 'image') deleteImage(it.ref, false);
     else removeBlock(it.ref.x, it.ref.y, it.ref.z, false);
   }
   pushUndo({ undo: () => { snap.forEach(s => recreateEl(s.kind, s.data)); renderElementList(); } });
-  toast(`🗑️ ${n}개를 삭제했어요`); clearMulti(); markDirty(); renderElementList(); blip(320);
+  toast(lockedCount ? `🗑️ ${n}개를 삭제했어요 (기본 무대는 남겨 뒀어요)` : `🗑️ ${n}개를 삭제했어요`);
+  clearMulti(); markDirty(); renderElementList(); blip(320);
 });
 document.getElementById('mpDup').addEventListener('click', () => {
   if (!state.multi.length) return;
@@ -1421,7 +1440,7 @@ function serializeImageEl(I) { return { src: I.src, aspect: I.aspect, scale: I.s
 function recreateEl(kind, d) {
   if (kind === 'light') createLight(d, false);
   else if (kind === 'prop') addPropRaw(d.type, d.x, d.y, d.z, d.rot, d.variant, false, { scale: d.scale, cfg: d.cfg, name: d.name, hide: d.hide });
-  else if (kind === 'block') addBlock(d.x, d.y, d.z, d.type, d.shape);
+  else if (kind === 'block') addBlock(d.x, d.y, d.z, d.type, d.shape, false, !!d.base);
   else addImageRaw(d, false);
 }
 function moveMultiTo(point) {
@@ -1440,9 +1459,9 @@ function moveMultiTo(point) {
   }
   const olds = state.multi.map(it => it.kind === 'block' ? { x: it.ref.x, y: it.ref.y, z: it.ref.z } : it.ref.pos.clone());
   // 블록: 정보 저장 → 제거 → 재배치
-  const bData = blockItems.map(it => { const b = blocks.get(keyOf(it.ref.x, it.ref.y, it.ref.z)); return { it, type: b.type, shape: b.shape, ox: it.ref.x, oy: it.ref.y, oz: it.ref.z }; });
+  const bData = blockItems.map(it => { const b = blocks.get(keyOf(it.ref.x, it.ref.y, it.ref.z)); return { it, type: b.type, shape: b.shape, base: b.base, ox: it.ref.x, oy: it.ref.y, oz: it.ref.z }; });
   for (const bd of bData) removeBlock(bd.ox, bd.oy, bd.oz);
-  for (const bd of bData) { addBlock(bd.ox + gdx, bd.oy, bd.oz + gdz, bd.type, bd.shape); bd.it.ref = { x: bd.ox + gdx, y: bd.oy, z: bd.oz + gdz }; }
+  for (const bd of bData) { addBlock(bd.ox + gdx, bd.oy, bd.oz + gdz, bd.type, bd.shape, false, bd.base); bd.it.ref = { x: bd.ox + gdx, y: bd.oy, z: bd.oz + gdz }; }
   // 소품·이미지·조명
   for (const it of state.multi) {
     if (it.kind === 'block') continue;
@@ -1452,7 +1471,7 @@ function moveMultiTo(point) {
   rebuildBlockHL();
   pushUndo({ undo: () => {
     for (const bd of bData) removeBlock(bd.ox + gdx, bd.oy, bd.oz + gdz);
-    for (const bd of bData) { addBlock(bd.ox, bd.oy, bd.oz, bd.type, bd.shape); bd.it.ref = { x: bd.ox, y: bd.oy, z: bd.oz }; }
+    for (const bd of bData) { addBlock(bd.ox, bd.oy, bd.oz, bd.type, bd.shape, false, bd.base); bd.it.ref = { x: bd.ox, y: bd.oy, z: bd.oz }; }
     state.multi.forEach((it, i) => { if (it.kind !== 'block') { it.ref.pos.copy(olds[i]); if (it.kind === 'light') updateLightVisual(it.ref); else it.ref.group.position.copy(it.ref.pos); } });
     rebuildBlockHL(); renderElementList();
   } });
@@ -1513,9 +1532,9 @@ function refreshEpBlockGrid() {
       const ss = state.selected; if (ss?.kind !== 'block') return;
       const { x, y, z } = ss.ref;
       const bb = blocks.get(keyOf(x, y, z)); if (!bb || bb.type === id) return;
-      const oldType = bb.type, shape = bb.shape;
-      removeBlock(x, y, z); addBlock(x, y, z, id, shape);
-      pushUndo({ undo: () => { removeBlock(x, y, z); addBlock(x, y, z, oldType, shape); } });
+      const oldType = bb.type, shape = bb.shape, wasBase = bb.base;
+      removeBlock(x, y, z); addBlock(x, y, z, id, shape, false, wasBase);
+      pushUndo({ undo: () => { removeBlock(x, y, z); addBlock(x, y, z, oldType, shape, false, wasBase); } });
       state.selected = { kind: 'block', ref: { x, y, z } };
       selBox.visible = true;
       refreshEpBlockGrid(); markDirty(); blip(540);
@@ -1708,6 +1727,21 @@ function renderImgGrid() {
 
 // 모드 전환
 document.querySelectorAll('.mode-tab').forEach(tab => tab.addEventListener('click', () => setMode(tab.dataset.mode)));
+
+// ---------------- 모바일 하단 시트(도구 패널) ----------------
+const sidebarEl = document.getElementById('sidebar');
+const sheetHandle = document.getElementById('sheetHandle');
+const isMobile = () => window.matchMedia('(max-width: 640px)').matches;
+function setSheet(open) {
+  sidebarEl.classList.toggle('collapsed', !open);
+  sheetHandle?.setAttribute('aria-expanded', String(open));
+}
+sheetHandle?.addEventListener('click', () => setSheet(sidebarEl.classList.contains('collapsed')));
+// 모바일에서 모드 탭을 누르면 도구 시트를 펼쳐서 바로 사용할 수 있게 한다
+document.querySelectorAll('.mode-tab').forEach(tab => tab.addEventListener('click', () => { if (isMobile()) setSheet(true); }));
+// 휴대폰에서는 처음에 시트를 접어 무대를 먼저 크게 보여준다
+if (isMobile()) setSheet(false);
+
 function setMode(mode) {
   state.mode = mode;
   document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
@@ -1842,7 +1876,16 @@ function renderElementListInto(box) {
   const clr = document.createElement('div'); clr.className = 'el-row';
   clr.innerHTML = `<span class="eic">🧱</span><span class="enm">블록 모두 지우기</span>`;
   const cd = document.createElement('button'); cd.className = 'ebtn edel'; cd.innerHTML = '<span class="material-icons-outlined">delete</span>';
-  cd.addEventListener('click', e => { e.stopPropagation(); if (blocks.size && confirm('이 장면의 블록을 모두 지울까요?')) { for (const [k] of [...blocks]) { const [x, y, z] = k.split(',').map(Number); removeBlock(x, y, z); } markDirty(); renderElementList(); } });
+  cd.addEventListener('click', e => {
+    e.stopPropagation();
+    if (!blocks.size) return;
+    const targets = [...blocks].filter(([k]) => { const [x, y, z] = k.split(',').map(Number); return !baseLocked(x, y, z); });
+    if (!targets.length) { toast('지울 블록이 없어요 — 기본 무대는 잠겨 있어요'); return; }
+    if (confirm('이 장면의 블록을 모두 지울까요?' + (state.baseErasable ? '' : '\n(기본 무대 바닥은 잠겨 있어 남겨 둬요)'))) {
+      for (const [k] of targets) { const [x, y, z] = k.split(',').map(Number); removeBlock(x, y, z); }
+      markDirty(); renderElementList();
+    }
+  });
   clr.appendChild(cd); box.appendChild(clr);
 }
 
@@ -1983,6 +2026,12 @@ document.getElementById('tgSeats').addEventListener('click', function () {
   seatGroup.visible = state.seats;
   if (!state.seats && state.selected?.kind === 'seats') clearSelection();
 });
+document.getElementById('tgBaseErase').addEventListener('click', function () {
+  state.baseErasable = !state.baseErasable; setSwitch(this, state.baseErasable);
+  if (state.selected?.kind === 'block') openEditPanel(); // 삭제 버튼 표시 갱신
+  markDirty();
+  toast(state.baseErasable ? '🔓 이제 기본 무대도 지울 수 있어요' : '🔒 기본 무대를 다시 잠갔어요');
+});
 document.getElementById('tgMarks').addEventListener('click', function () {
   state.marks = !state.marks; setSwitch(this, state.marks);
   if (marksGroup) marksGroup.visible = state.marks;
@@ -2030,7 +2079,7 @@ document.getElementById('btnShot').addEventListener('click', () => {
 });
 
 // ---------------- 저장 / 불러오기 ----------------
-function serializeProject() { snapshot(); return { v: 2, preset: proj.preset, house: proj.house, active: proj.active, scenes: proj.scenes, music: music.getState(), seatTransform: proj.seatTransform, arenaShape: proj.arenaShape, marks: state.marks, markCenter: state.markCenter }; }
+function serializeProject() { snapshot(); return { v: 2, preset: proj.preset, house: proj.house, active: proj.active, scenes: proj.scenes, music: music.getState(), seatTransform: proj.seatTransform, arenaShape: proj.arenaShape, marks: state.marks, markCenter: state.markCenter, baseErasable: state.baseErasable }; }
 function restoreProject(data) {
   if (!data) return false;
   if (data.preset === 'outdoor') data.preset = 'outdoor_forest';
@@ -2039,6 +2088,7 @@ function restoreProject(data) {
   proj.seatTransform = data.seatTransform ?? { x: 0, z: 0, rot: 0 };
   proj.arenaShape = data.arenaShape ?? 'circle';
   state.marks = !!data.marks; setSwitch(document.getElementById('tgMarks'), state.marks);
+  state.baseErasable = !!data.baseErasable; setSwitch(document.getElementById('tgBaseErase'), state.baseErasable);
   state.markCenter = data.markCenter ?? null;
   document.getElementById('markCenterRow').classList.toggle('hidden', !state.marks);
   document.getElementById('houseSlider').value = proj.house * 100;
