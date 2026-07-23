@@ -467,16 +467,93 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); cursor: p
 .chichiboo-footer .material-icons-outlined { font-size: 15px; }
 
 /* ---------- 반응형 ---------- */
+@media (max-width: 1024px) {
+  .logo-sub { display: none; }
+  #sidebar { width: 236px; min-width: 236px; }
+}
 @media (max-width: 900px) {
-  .logo-sub, .btn-label { display: none; }
+  .btn-label { display: none; }
   #sidebar { width: 220px; min-width: 220px; }
   .swatch-grid { grid-template-columns: repeat(3, 1fr); }
   .preset-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- 모바일 하단 시트 손잡이 (기본은 숨김) ---------- */
+.sheet-handle { display: none; }
+
+/* ---------- 휴대폰 (세로) ---------- */
 @media (max-width: 640px) {
-  #app { flex-direction: column-reverse; }
-  #sidebar { width: 100%; min-width: 0; max-height: 45%; border-right: none; border-top: 1px solid var(--color-gray-200); }
+  #topbar { gap: 8px; padding: 7px 10px; }
+  #topbar .logo strong.pixel { font-size: 12px; }
+  .top-right { gap: 3px; }
+  .select-wrap select { padding: 8px; font-size: 13px; max-width: 46vw; }
+  #sceneBar { padding: 5px 10px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #sceneBar::-webkit-scrollbar { display: none; }
+  #sceneTabs { flex-wrap: nowrap; }
+  .scene-tab { white-space: nowrap; }
+
+  #app { flex-direction: column-reverse; position: relative; }
+  #viewport { min-height: 0; }
+
+  /* 사이드바를 화면 아래에서 올라오는 시트로 */
+  #sidebar {
+    width: 100%; min-width: 0;
+    max-height: 68vh;
+    border-right: none; border-top: none;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -6px 22px rgba(0,0,0,.16);
+    flex-shrink: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #sidebar.collapsed { max-height: none; }
+  #sidebar.collapsed #palette { display: none; }
+
+  .sheet-handle {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; padding: 8px 0 4px; background: none; border: none; cursor: pointer;
+    position: relative;
+  }
+  .sheet-grip { width: 44px; height: 5px; border-radius: 999px; background: var(--color-gray-300); }
+  .sheet-chevron { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-500); font-size: 22px; transition: transform .2s; }
+  #sidebar.collapsed .sheet-chevron { transform: translateY(-50%) rotate(180deg); }
+
+  #modeTabs { padding: 2px 8px 0; }
+  #palette { max-height: 56vh; padding: 10px 10px 14px; }
+  /* 시트가 화면 폭을 다 쓰므로 팔레트를 더 촘촘하게 */
+  .swatch-grid { grid-template-columns: repeat(5, 1fr); }
+  .swatch-grid.mini { grid-template-columns: repeat(7, 1fr); }
+  .preset-grid { grid-template-columns: 1fr 1fr; }
+
   #viewButtons { display: none; }
+  #hintbar { bottom: 12px; font-size: 12px; max-width: 88%; }
+  .perform-pill { padding: 9px 14px; font-size: 13.5px; }
+
+  /* 편집·목록 팝업은 화면 폭에 맞춰 좁힌다 */
+  .side-panel { width: min(252px, calc(100vw - 24px)); max-height: calc(100% - 24px); }
+  .float-list { width: min(258px, calc(100vw - 24px)); }
+  #viewport.list-open #editPanel { right: 12px; } /* 좁은 화면에선 겹치지 않게 목록 위에 표시 */
+
+  .modal-box { padding: 22px 16px; width: 94%; max-height: 90vh; }
+  .welcome h1 { font-size: 22px; }
+  .welcome h1 .pixel { font-size: 22px; }
+}
+
+/* ---------- 터치 기기: 탭 영역 넓히기 ---------- */
+@media (hover: none) and (pointer: coarse) {
+  * { -webkit-tap-highlight-color: transparent; }
+  .btn { padding: 10px 15px; }
+  .btn.tiny { padding: 7px 11px; }
+  .btn.icon-only { padding: 10px; }
+  .mode-tab { padding: 11px 2px 10px; }
+  .switch { width: 50px; height: 28px; }
+  .switch::after { width: 22px; height: 22px; }
+  .switch.on::after { left: 25px; }
+  .el-row .ebtn { padding: 6px; }
+  .el-row .ebtn .material-icons-outlined { font-size: 20px; }
+  .opt-chip { padding: 7px 13px; }
+  .color-chip { width: 30px; height: 30px; }
+  .sp-close { padding: 4px; }
+  .vbtn { padding: 9px 15px; }
 }
 
 /* ============ v4 추가 컴포넌트 ============ */

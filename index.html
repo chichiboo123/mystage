@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>My Stage — 나만의 무대 만들기</title>
 <link rel="stylesheet" href="css/fonts/pretendard-gov.css">
 <link rel="stylesheet" href="css/style.css">
@@ -66,6 +66,10 @@
 <div id="app">
   <!-- ===== 왼쪽 도구 패널 ===== -->
   <aside id="sidebar">
+    <button id="sheetHandle" class="sheet-handle" aria-label="도구 패널 접기/펴기" aria-expanded="true">
+      <span class="sheet-grip"></span>
+      <span class="sheet-chevron material-icons-outlined">expand_more</span>
+    </button>
     <nav id="modeTabs">
       <button class="mode-tab active" data-mode="view" title="둘러보고 고르기 (1)"><span class="mt-ic">👀</span><span>보기</span></button>
       <button class="mode-tab" data-mode="block" title="블록으로 무대 만들기 (2)"><span class="mt-ic">🧱</span><span>만들기</span></button>
@@ -104,6 +108,8 @@
           </div>
           <label class="opt-row"><span>🪑 객석 보이기</span><button id="tgSeats" class="switch on" role="switch" aria-checked="true"></button></label>
           <p class="pal-help" style="margin:6px 0 0">객석을 <b>클릭</b>하면 통째로 옮기거나 돌릴 수 있어요.</p>
+          <label class="opt-row"><span>🧱 기본 무대도 지우기</span><button id="tgBaseErase" class="switch" role="switch" aria-checked="false"></button></label>
+          <p class="pal-help" style="margin:6px 0 0">평소엔 기본으로 깔린 무대 바닥이 <b>잠겨</b> 있어 실수로 지워지지 않아요. 켜면 기본 무대도 여느 블록처럼 지울 수 있어요.</p>
         </div>
         <div class="pal-card">
           <h3><span class="material-icons-outlined">checklist</span>내가 놓은 것들</h3>
