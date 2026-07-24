@@ -110,6 +110,8 @@
           <p class="pal-help" style="margin:6px 0 0">객석을 <b>클릭</b>하면 통째로 옮기거나 돌릴 수 있어요.</p>
           <label class="opt-row"><span>🧱 기본 무대도 지우기</span><button id="tgBaseErase" class="switch" role="switch" aria-checked="false"></button></label>
           <p class="pal-help" style="margin:6px 0 0">평소엔 기본으로 깔린 무대 바닥이 <b>잠겨</b> 있어 실수로 지워지지 않아요. 켜면 기본 무대도 여느 블록처럼 지울 수 있어요.</p>
+          <label class="opt-row"><span>🔒 화면 고정</span><button id="tgCamLock" class="switch" role="switch" aria-checked="false"></button></label>
+          <p class="pal-help" style="margin:6px 0 0">켜면 화면 <b>회전·이동·확대</b>가 잠겨요. 아이들이 실수로 화면을 돌리지 않게 도와줘요.</p>
         </div>
         <div class="pal-card">
           <h3><span class="material-icons-outlined">checklist</span>내가 놓은 것들</h3>
@@ -161,7 +163,7 @@
         <div id="actorCard" class="pal-card">
           <h3><span class="material-icons-outlined">face</span>배우 꾸미기</h3>
           <p class="pal-help">마우스를 무대 위에 올리면 <b>미리보기</b>가 따라다녀요.</p>
-          <div id="actorChips"></div>
+          <div id="actorChips" class="cz-panel"></div>
           <button id="btnActorRandom" class="btn secondary wide">🎲 랜덤으로 꾸미기</button>
         </div>
       </div>
@@ -243,6 +245,14 @@
 
     <button id="performPill" class="perform-pill" title="극장 불을 끄고 내 조명만 켜서 진짜 공연처럼 봐요">🌙 공연 모드</button>
     <button id="ambPill" class="perform-pill amb hidden" title="환경 소리 켜기/끄기">🔊</button>
+    <button id="camLockPill" class="perform-pill lock hidden" title="화면 고정을 꺼요">🔒 화면 고정됨</button>
+
+    <!-- 확대·축소 · 화면 맞추기 (작은 플로팅 버튼) -->
+    <div id="camControls">
+      <button id="camZoomIn" class="cam-btn zoomable" title="확대"><span class="material-icons-outlined">add</span></button>
+      <button id="camZoomOut" class="cam-btn zoomable" title="축소"><span class="material-icons-outlined">remove</span></button>
+      <button id="camFit" class="cam-btn" title="무대 중앙으로 화면 맞추기"><span class="material-icons-outlined">center_focus_strong</span></button>
+    </div>
 
     <!-- 요소 편집 팝업 (종류에 따라 필요한 기능만 보여요) -->
     <div id="editPanel" class="side-panel hidden">
@@ -269,8 +279,8 @@
         <div id="epBlockGrid" class="swatch-grid mini"></div>
       </div>
       <div id="epActorSec" class="hidden">
-        <p class="pal-help">이 배우를 다시 꾸며요.</p>
-        <div id="epActorChips"></div>
+        <p class="pal-help">인물을 꾸미고 <b>자세·움직임</b>을 정해요. (항목을 눌러 펼치세요)</p>
+        <div id="epActorChips" class="cz-panel"></div>
       </div>
       <div id="epSeatSec" class="hidden">
         <button id="epSeatReset" class="btn secondary wide"><span class="material-icons-outlined">restart_alt</span>객석 위치 되돌리기</button>
