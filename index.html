@@ -45,6 +45,7 @@
       <div id="saveMenu" class="menu hidden">
         <button id="btnSave"><span class="material-icons-outlined">save</span>브라우저에 저장</button>
         <button id="btnShot"><span class="material-icons-outlined">photo_camera</span>사진 찍기 (PNG)</button>
+        <button id="btnRecord"><span class="material-icons-outlined">videocam</span>영상 촬영 (WebM)</button>
         <button id="btnShareLink"><span class="material-icons-outlined">link</span>링크로 공유</button>
         <button id="btnExport"><span class="material-icons-outlined">file_download</span>파일로 내보내기</button>
         <button id="btnImport"><span class="material-icons-outlined">file_upload</span>파일 불러오기</button>
@@ -90,6 +91,12 @@
             <button class="vbig" data-view="bird">🦅<span>하늘</span></button>
             <button class="vbig" data-view="booth">💡<span>조명 부스</span></button>
           </div>
+        </div>
+        <div class="pal-card">
+          <h3><span class="material-icons-outlined">directions_walk</span>일인칭 모드</h3>
+          <p class="pal-help">무대 위를 <b>걸어 다니는 사람</b>이 되어 눈높이에서 둘러봐요.</p>
+          <button id="btnFirstPerson" class="btn secondary wide"><span class="material-icons-outlined">directions_walk</span>일인칭으로 걸어보기</button>
+          <p class="pal-help" style="margin:8px 0 0">⌨️ <b>방향키</b>(또는 WASD) 이동 · <b>스페이스바</b> 점프 · 화면을 <b>끌면</b> 고개 돌리기 · <b>Shift</b> 달리기<br>📱 휴대폰·태블릿은 <b>조이스틱</b>과 <b>점프 버튼</b>이 나타나요. (ESC로 나가기)</p>
         </div>
         <div class="pal-card">
           <h3><span class="material-icons-outlined">select_all</span>여러 개 편집</h3>
@@ -228,6 +235,15 @@
           </div>
         </div>
         <div class="pal-card">
+          <h3><span class="material-icons-outlined">cloud</span>스모그 머신</h3>
+          <p class="pal-help">💨 <b>꾸미기 → 무대장치 → 스모그 머신</b>을 무대에 놓고 여기서 켜면 뿌연 안개가 뿜어져 나와요. 조명 빛줄기가 훨씬 잘 보여요!</p>
+          <label class="opt-row slim"><span>안개 켜기</span><button id="tgSmoke" class="switch" role="switch" aria-checked="false"></button></label>
+          <label class="opt-row slim"><span>안개 농도 <em id="smokeDensityVal">보통</em></span></label>
+          <input type="range" id="smokeDensity" min="0" max="100" value="55" aria-label="안개 농도">
+          <button id="btnSmokeBurst" class="btn secondary wide"><span class="material-icons-outlined">air</span>한 번에 뿜기</button>
+          <p id="smokeCount" class="music-name">아직 놓인 스모그 머신이 없어요</p>
+        </div>
+        <div class="pal-card">
           <h3><span class="material-icons-outlined">forest</span>환경 소리</h3>
           <p class="pal-help">숲·바다·우주 무대에 들어가면 어울리는 소리가 자동으로 흘러나와요.</p>
           <label class="opt-row slim"><span>소리 켜기</span><button id="ambMute" class="switch on" role="switch" aria-checked="true"></button></label>
@@ -304,6 +320,22 @@
     <!-- 드래그 선택 사각형 -->
     <div id="marquee" class="hidden"></div>
 
+    <!-- 영상 촬영: 카운트다운 -->
+    <div id="recCountdown" class="rec-countdown hidden"><span id="recCountNum">3</span></div>
+
+    <!-- 영상 촬영: 녹화 중 조작 버튼 -->
+    <div id="recControls" class="rec-controls hidden">
+      <span class="rec-dot"></span>
+      <span id="recTime">00:00</span>
+      <button id="recPause" class="btn secondary" title="잠시 멈추기"><span class="material-icons-outlined">pause</span>일시정지</button>
+      <button id="recStop" class="btn danger" title="녹화를 끝내요"><span class="material-icons-outlined">stop</span>정지</button>
+    </div>
+
+    <!-- 일인칭: 이동 조이스틱 + 점프 (터치 기기) -->
+    <div id="fpJoy" class="fp-joy hidden"><div id="fpKnob" class="fp-knob"></div></div>
+    <button id="fpJump" class="fp-jump hidden">⬆<span>점프</span></button>
+    <button id="fpExit" class="perform-pill fp-exit hidden" title="일인칭 모드에서 나가기">🚪 일인칭 끝내기</button>
+
     <!-- 플로팅 요소 목록 -->
     <div id="floatList" class="side-panel float-list hidden">
       <div class="sp-head">
@@ -368,6 +400,22 @@
     </div>
     <nav id="eduTabs"></nav>
     <div id="eduContent"></div>
+  </div>
+</div>
+
+<!-- ===== 영상 미리보기 ===== -->
+<div id="videoModal" class="modal hidden">
+  <div class="modal-box video-box">
+    <div class="edu-head">
+      <h2>🎬 촬영한 영상 미리보기</h2>
+      <button id="videoClose" class="btn secondary"><span class="material-icons-outlined">close</span>닫기</button>
+    </div>
+    <video id="videoPreview" controls playsinline></video>
+    <p id="videoInfo" class="music-name"></p>
+    <div class="video-actions">
+      <button id="videoDownload" class="btn primary big"><span class="material-icons-outlined">file_download</span>영상 다운로드</button>
+      <button id="videoRetake" class="btn secondary big"><span class="material-icons-outlined">videocam</span>다시 촬영</button>
+    </div>
   </div>
 </div>
 
