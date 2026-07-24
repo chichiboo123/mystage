@@ -34,11 +34,25 @@ function makeFace(skin = '#e8b88f', face = 'basic') {
   c.width = 8; c.height = 8;
   const ctx = c.getContext('2d');
   ctx.fillStyle = skin; ctx.fillRect(0, 0, 8, 8);
-  ctx.fillStyle = '#2b2b2b';
-  if (face === 'wink') { ctx.fillRect(1, 3, 2, 1); ctx.fillRect(5, 3, 2, 1); ctx.fillRect(5, 2, 2, 1); ctx.fillStyle = skin; ctx.fillRect(5, 3, 2, 1); ctx.fillStyle = '#2b2b2b'; }
-  else { ctx.fillRect(1, 3, 2, 1); ctx.fillRect(5, 3, 2, 1); }
-  if (face === 'smile') { ctx.fillRect(2, 5, 1, 1); ctx.fillRect(3, 6, 2, 1); ctx.fillRect(5, 5, 1, 1); }
-  else if (face === 'open') { ctx.fillStyle = '#7a3030'; ctx.fillRect(3, 5, 2, 2); ctx.fillStyle = '#2b2b2b'; }
+  const ink = '#2b2b2b';
+  ctx.fillStyle = ink;
+  // 눈 — 표정별로 모양 다르게
+  const eyesClosed = () => { ctx.fillRect(1, 4, 2, 1); ctx.fillRect(5, 4, 2, 1); };
+  const eyesOpen = () => { ctx.fillRect(1, 3, 2, 1); ctx.fillRect(5, 3, 2, 1); };
+  const eyesBig = () => { ctx.fillRect(1, 2, 2, 2); ctx.fillRect(5, 2, 2, 2); };
+  if (face === 'wink') { ctx.fillRect(1, 3, 2, 1); ctx.fillRect(5, 4, 2, 1); }
+  else if (face === 'closed' || face === 'sleep') eyesClosed();
+  else if (face === 'surprise') eyesBig();
+  else if (face === 'sad') { ctx.fillRect(1, 3, 2, 1); ctx.fillRect(5, 3, 2, 1); }
+  else if (face === 'angry') { ctx.fillRect(1, 3, 2, 1); ctx.fillRect(5, 3, 2, 1); ctx.fillRect(1, 2, 1, 1); ctx.fillRect(6, 2, 1, 1); }
+  else eyesOpen();
+  // 입 — 표정별
+  if (face === 'smile' || face === 'laugh') { ctx.fillRect(2, 5, 1, 1); ctx.fillRect(3, 6, 2, 1); ctx.fillRect(5, 5, 1, 1); }
+  else if (face === 'open' || face === 'sing') { ctx.fillStyle = '#7a3030'; ctx.fillRect(3, 5, 2, 2); ctx.fillStyle = ink; }
+  else if (face === 'surprise') { ctx.fillStyle = '#7a3030'; ctx.fillRect(3, 5, 2, 2); ctx.fillStyle = ink; }
+  else if (face === 'sad') { ctx.fillRect(3, 6, 2, 1); ctx.fillRect(2, 5, 1, 1); ctx.fillRect(5, 5, 1, 1); }
+  else if (face === 'angry') { ctx.fillRect(2, 6, 4, 1); }
+  else if (face === 'nervous') { ctx.fillRect(2, 6, 3, 1); }
   else ctx.fillRect(3, 5, 2, 1);
   const tex = new THREE.CanvasTexture(c);
   tex.magFilter = THREE.NearestFilter;
@@ -46,82 +60,197 @@ function makeFace(skin = '#e8b88f', face = 'basic') {
   return tex;
 }
 
-// 배우 꾸미기 선택지 (마인크래프트식 커스터마이징)
-export const ACTOR_OPTIONS = {
-  skin: ['#f5d3b3', '#e8b88f', '#c68d5e', '#8d5a3b'],
-  hair: ['#2b2118', '#4a3626', '#8a5a30', '#caa64a', '#d94040', '#4a7fd4'],
-  hairStyle: [
-    { id: 'short', name: '짧은 머리' }, { id: 'long', name: '긴 머리' },
-    { id: 'cap', name: '모자' }, { id: 'none', name: '민머리' },
-  ],
-  shirt: ['#d94040', '#4a7fd4', '#48a860', '#e78a2e', '#8e5bc9', '#e883b0', '#ecc94b', '#3ba7a0'],
-  pants: ['#31435e', '#1e1e28', '#6b4a2b', '#c03a4a', '#48a860', '#e8e8ee'],
-  face: [
-    { id: 'basic', name: '기본', emoji: '🙂' }, { id: 'smile', name: '미소', emoji: '😊' },
-    { id: 'open', name: '노래', emoji: '😮' }, { id: 'wink', name: '윙크', emoji: '😉' },
-  ],
-};
-export function randomActorCfg() {
-  const pick = a => a[Math.floor(Math.random() * a.length)];
-  return {
-    skin: pick(ACTOR_OPTIONS.skin), hair: pick(ACTOR_OPTIONS.hair),
-    hairStyle: pick(ACTOR_OPTIONS.hairStyle).id, shirt: pick(ACTOR_OPTIONS.shirt),
-    pants: pick(ACTOR_OPTIONS.pants), face: pick(ACTOR_OPTIONS.face).id,
-  };
+const SHIRTS = ['#d94040', '#4a7fd4', '#48a860', '#e78a2e', '#8e5bc9', '#e883b0', '#ecc94b', '#3ba7a0'];
+
+// 색을 곱해서 살짝 어둡게 (의상 음영·소매 구분용)
+function darken(hex, f = 0.82) {
+  const c = new THREE.Color(hex); c.multiplyScalar(f); return `#${c.getHexString()}`;
 }
 
-// 공통 사람 몸체 (셔츠/바지/머리/피부/표정 지정)
-function person({ shirt = '#d94040', pants = '#31435e', hair = '#4a3626', skin = '#e8b88f', hairStyle = 'short', face = 'basic' } = {}) {
-  const g = new THREE.Group();
-  g.add(box(0.2, 0.6, 0.24, pants, -0.13, 0.3, 0));
-  g.add(box(0.2, 0.6, 0.24, pants, 0.13, 0.3, 0));
-  g.add(box(0.5, 0.62, 0.28, shirt, 0, 0.91, 0));
-  g.add(box(0.16, 0.58, 0.24, shirt, -0.34, 0.93, 0));
-  g.add(box(0.16, 0.58, 0.24, shirt, 0.34, 0.93, 0));
+// ---------- 공통 사람 몸체 (골격 그룹으로 구성해 자세·애니메이션 지원) ----------
+// 반환 그룹의 userData.rig = { core, neck, shoulderL, shoulderR, hipL, hipR }
+// 각 부위는 관절(피벗) 그룹이며, 자식 메시는 로컬 좌표계에서 관절 아래로 매달린다.
+function person(cfg = {}) {
+  const {
+    shirt = '#d94040', pants = '#31435e', hair = '#4a3626', skin = '#e8b88f',
+    hairStyle = 'short', face = 'basic',
+    outfit = 'tshirt', hat = 'none', hatColor = '#ffd54a', glasses = 'none', item = 'none',
+  } = cfg;
+
+  const root = new THREE.Group();
+  const sleeve = outfit === 'dress' ? shirt : darken(shirt, 0.9);
+
+  // ----- 다리(엉덩이 관절) -----
+  const legMesh = (side) => {
+    const hip = new THREE.Group();
+    hip.position.set(side * 0.13, 0.6, 0);
+    hip.add(box(0.2, 0.6, 0.24, pants, 0, -0.3, 0));
+    hip.add(box(0.22, 0.1, 0.3, darken(pants, 0.6), 0, -0.6, 0.03)); // 신발
+    hip.userData.part = side < 0 ? 'legL' : 'legR';
+    return hip;
+  };
+  const hipL = legMesh(-1), hipR = legMesh(1);
+  root.add(hipL, hipR);
+
+  // ----- 상체(엉덩이 기준 관절) : 몸통 + 팔 + 머리 -----
+  const core = new THREE.Group();
+  core.position.set(0, 0.6, 0);
+  core.userData.part = 'core';
+  root.add(core);
+
+  // 몸통 (의상별)
+  core.add(box(0.5, 0.62, 0.28, shirt, 0, 0.31, 0)); // 기본 몸통 (world y 0.91)
+  buildOutfit(core, outfit, shirt, pants, hatColor);
+
+  // 팔(어깨 관절)
+  const armMesh = (side) => {
+    const sh = new THREE.Group();
+    sh.position.set(side * 0.34, 0.6, 0); // world y 1.2
+    sh.add(box(0.16, 0.5, 0.24, sleeve, 0, -0.23, 0)); // 소매
+    sh.add(box(0.15, 0.12, 0.22, skin, 0, -0.53, 0));  // 손
+    sh.userData.part = side < 0 ? 'armL' : 'armR';
+    return sh;
+  };
+  const shoulderL = armMesh(-1), shoulderR = armMesh(1);
+  core.add(shoulderL, shoulderR);
+
+  // 머리(목 관절)
+  const neck = new THREE.Group();
+  neck.position.set(0, 0.63, 0); // world y 1.23
+  neck.userData.part = 'head';
+  core.add(neck);
+
   const headMats = Array(6).fill(mat(skin));
   headMats[4] = new THREE.MeshStandardMaterial({ map: makeFace(skin, face), roughness: 0.85 });
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), headMats);
-  head.position.y = 1.44; g.add(head);
-  if (hairStyle === 'short') g.add(box(0.46, 0.12, 0.46, hair, 0, 1.68, 0));
-  else if (hairStyle === 'long') { g.add(box(0.46, 0.12, 0.46, hair, 0, 1.68, 0)); g.add(box(0.46, 0.5, 0.14, hair, 0, 1.35, -0.2)); }
-  else if (hairStyle === 'cap') { g.add(box(0.46, 0.16, 0.46, hair, 0, 1.7, 0)); g.add(box(0.46, 0.08, 0.2, hair, 0, 1.66, 0.32)); }
-  return g;
+  head.position.y = 0.21; // world y 1.44
+  neck.add(head);
+
+  // 머리카락
+  if (hairStyle === 'short') neck.add(box(0.46, 0.12, 0.46, hair, 0, 0.45, 0));
+  else if (hairStyle === 'long') { neck.add(box(0.46, 0.12, 0.46, hair, 0, 0.45, 0)); neck.add(box(0.46, 0.5, 0.14, hair, 0, 0.12, -0.2)); }
+  else if (hairStyle === 'ponytail') { neck.add(box(0.46, 0.12, 0.46, hair, 0, 0.45, 0)); neck.add(box(0.16, 0.4, 0.16, hair, 0, 0.2, -0.26)); }
+  else if (hairStyle === 'bun') { neck.add(box(0.46, 0.12, 0.46, hair, 0, 0.45, 0)); neck.add(sph(0.13, hair, 0, 0.5, -0.22)); }
+  // 'none'(민머리)은 머리카락 없음
+
+  // 모자·액세서리 (머리 관절에 부착)
+  buildHat(neck, hat, hatColor, hair);
+  buildGlasses(neck, glasses);
+
+  // 소지품·악기 (상체에 부착 — 손 근처)
+  buildHeldItem(core, item);
+
+  root.userData.rig = { core, neck, shoulderL, shoulderR, hipL, hipR };
+  root.userData.isPerson = true;
+  return root;
 }
 
-const SHIRTS = ['#d94040', '#4a7fd4', '#48a860', '#e78a2e', '#8e5bc9', '#e883b0', '#ecc94b', '#3ba7a0'];
+// 의상 세부 (core 로컬 좌표계: world y = local y + 0.6)
+function buildOutfit(core, outfit, shirt, pants, accent) {
+  const acc = darken(shirt, 0.7);
+  if (outfit === 'shirt') {
+    core.add(box(0.52, 0.1, 0.3, '#f4f4f8', 0, 0.58, 0.01)); // 옷깃
+    core.add(box(0.06, 0.62, 0.02, acc, 0, 0.31, 0.15));      // 단추선
+  } else if (outfit === 'jacket') {
+    core.add(box(0.54, 0.64, 0.3, darken(shirt, 0.85), 0, 0.31, 0)); // 겉옷
+    core.add(box(0.12, 0.6, 0.02, '#f4f4f8', -0.14, 0.31, 0.16));
+    core.add(box(0.12, 0.6, 0.02, '#f4f4f8', 0.14, 0.31, 0.16));
+  } else if (outfit === 'hoodie') {
+    core.add(box(0.5, 0.2, 0.34, darken(shirt, 0.8), 0, 0.6, -0.02)); // 후드
+    core.add(box(0.3, 0.16, 0.02, acc, 0, 0.16, 0.16));               // 주머니
+    core.add(box(0.05, 0.2, 0.05, '#f4f4f8', 0, 0.5, 0.14));          // 끈
+  } else if (outfit === 'dress' || outfit === 'royal') {
+    const skirt = cone(0.5, 0.7, shirt, 0, -0.05, 0, 16); core.add(skirt); // 치마 (허리에서 아래로)
+    if (outfit === 'royal') {
+      const cape = box(0.55, 0.75, 0.06, accent, 0, 0.28, -0.16); core.add(cape); // 망토
+      core.add(box(0.52, 0.12, 0.3, '#f7f0d8', 0, 0.58, 0.01));
+    }
+  } else if (outfit === 'uniform') {
+    core.add(box(0.52, 0.12, 0.3, '#f4f4f8', 0, 0.56, 0.01));  // 흰 옷깃
+    core.add(box(0.1, 0.34, 0.02, acc, 0, 0.4, 0.15));         // 넥타이
+  } else if (outfit === 'stage') {
+    core.add(box(0.52, 0.64, 0.3, shirt, 0, 0.31, 0, { emissive: shirt, emissiveIntensity: 0.35, metalness: 0.4, roughness: 0.35 }));
+    core.add(box(0.54, 0.08, 0.32, accent, 0, 0.02, 0, { emissive: accent, emissiveIntensity: 0.4 })); // 반짝 띠
+  } else if (outfit === 'sporty') {
+    core.add(box(0.08, 0.6, 0.02, '#f4f4f8', -0.2, 0.31, 0.15)); // 옆줄
+    core.add(box(0.08, 0.6, 0.02, '#f4f4f8', 0.2, 0.31, 0.15));
+  }
+  // 'tshirt'는 기본 몸통만
+}
+
+// 모자·머리 액세서리
+function buildHat(neck, hat, color, hair) {
+  if (hat === 'cap') { // 야구모자
+    neck.add(box(0.46, 0.16, 0.46, color, 0, 0.5, 0));
+    neck.add(box(0.44, 0.06, 0.28, color, 0, 0.46, 0.32)); // 챙
+  } else if (hat === 'crown') { // 왕관
+    neck.add(cyl(0.26, 0.26, 0.16, color, 0, 0.56, 0, 8));
+    for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; neck.add(cone(0.05, 0.12, color, Math.cos(a) * 0.22, 0.68, Math.sin(a) * 0.22, 6)); }
+  } else if (hat === 'fedora') { // 중절모·챙모자
+    neck.add(cyl(0.45, 0.45, 0.04, darken(color, 0.85), 0, 0.46, 0, 16)); // 넓은 챙
+    neck.add(cyl(0.24, 0.26, 0.24, color, 0, 0.6, 0, 16));
+    neck.add(cyl(0.245, 0.265, 0.06, darken(color, 0.6), 0, 0.52, 0, 16)); // 띠
+  } else if (hat === 'headband') { // 머리띠
+    neck.add(torus(0.24, 0.04, color, 0, 0.44, 0));
+    neck.children[neck.children.length - 1].rotation.x = Math.PI / 2;
+  } else if (hat === 'ribbon') { // 리본
+    neck.add(box(0.1, 0.1, 0.1, color, -0.1, 0.5, -0.02));
+    neck.add(box(0.1, 0.1, 0.1, color, 0.1, 0.5, -0.02));
+    neck.add(box(0.06, 0.06, 0.06, darken(color, 0.7), 0, 0.5, -0.02));
+  } else if (hat === 'beanie') { // 비니
+    neck.add(box(0.48, 0.2, 0.48, color, 0, 0.46, 0));
+  }
+}
+
+// 안경·선글라스
+function buildGlasses(neck, glasses) {
+  if (glasses === 'none') return;
+  const col = glasses === 'sunglasses' ? '#181820' : '#333844';
+  const opts = glasses === 'sunglasses' ? { roughness: 0.3, metalness: 0.4 } : {};
+  neck.add(box(0.15, 0.1, 0.03, col, -0.1, 0.21, 0.22, opts));
+  neck.add(box(0.15, 0.1, 0.03, col, 0.1, 0.21, 0.22, opts));
+  neck.add(box(0.06, 0.02, 0.02, col, 0, 0.21, 0.22, opts)); // 다리
+}
+
+// 손에 드는 악기·소지품 (core 로컬 좌표계)
+function buildHeldItem(core, item) {
+  if (item === 'guitar') {
+    const g = new THREE.Group();
+    const body = sph(0.22, '#c9822e', 0, 0, 0); body.scale.set(1, 1.25, 0.35); g.add(body);
+    g.add(box(0.07, 0.7, 0.05, '#7a4a26', 0, 0.5, 0), box(0.12, 0.16, 0.06, '#5d3820', 0, 0.9, 0));
+    g.position.set(0.05, 0.28, 0.24); g.rotation.set(0.1, 0, -0.5);
+    core.add(g);
+  } else if (item === 'violin') {
+    const g = new THREE.Group();
+    const body = sph(0.13, '#8a3d1a', 0, 0, 0); body.scale.set(1, 1.5, 0.4); g.add(body);
+    g.add(box(0.05, 0.42, 0.04, '#3a2412', 0, 0.28, 0));
+    g.position.set(-0.05, 0.62, 0.2); g.rotation.set(0, 0.3, 1.4);
+    core.add(g);
+    const bow = box(0.02, 0.5, 0.02, '#e8d8b0', 0.34, 0.5, 0.16); bow.rotation.z = 0.5; core.add(bow);
+  } else if (item === 'keytar') {
+    const g = group(box(0.7, 0.08, 0.2, '#18181d', 0, 0, 0), box(0.6, 0.03, 0.14, '#f4f4f4', 0, 0.05, 0.02));
+    g.position.set(0.1, 0.2, 0.26); g.rotation.set(0.15, 0, -0.25);
+    core.add(g);
+  } else if (item === 'mic') {
+    const m = cyl(0.05, 0.05, 0.3, '#222', 0.34, 0.55, 0.28); m.rotation.z = -0.5;
+    core.add(m, sph(0.06, '#888', 0.5, 0.68, 0.35));
+  } else if (item === 'book') {
+    core.add(box(0.3, 0.4, 0.05, '#f2ead8', 0.28, 0.25, 0.18));
+  }
+}
 
 // ---------- 소품 빌더 ----------
 const builders = {
-  // === 인물 ===
-  actor: (v = 0, cfg = null) => cfg ? person(cfg) : person({ shirt: SHIRTS[v % SHIRTS.length], hairStyle: v % 2 ? 'long' : 'short' }),
-  child: () => {
-    const g = person({ shirt: '#ffcf4d', pants: '#5b7', hairStyle: 'short' });
+  // === 인물 (모두 cfg로 꾸밀 수 있다) ===
+  actor: (v = 0, cfg = null) => person(cfg || { shirt: SHIRTS[v % SHIRTS.length], hairStyle: v % 2 ? 'long' : 'short' }),
+  child: (v = 0, cfg = null) => {
+    const g = person(cfg || { shirt: '#ffcf4d', pants: '#55bb77', hairStyle: 'short' });
     g.scale.set(0.78, 0.78, 0.78); return g;
   },
-  singer: () => {
-    const g = person({ shirt: '#c026d3', pants: '#1e1e28', hairStyle: 'long' });
-    const m = cyl(0.05, 0.05, 0.4, '#222', 0.34, 1.15, 0.28); m.rotation.z = -0.5;
-    g.add(m, sph(0.06, '#888', 0.5, 1.28, 0.35)); return g;
-  },
-  dancer: () => {
-    const g = person({ shirt: '#ff4f8b', pants: '#ff4f8b', hairStyle: 'long' });
-    g.children[5] && (g.children[5].rotation.z = 0.9); // 팔 들기
-    g.add(cone(0.4, 0.35, '#ff88b0', 0, 0.55, 0, 14)); // 치마
-    return g;
-  },
-  king: () => {
-    const g = person({ shirt: '#7c1fa0', pants: '#4a1266', hair: '#caa64a', hairStyle: 'short' });
-    const crown = cyl(0.26, 0.26, 0.18, '#ffd54a', 0, 1.76, 0, 8);
-    g.add(crown);
-    for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; g.add(cone(0.05, 0.12, '#ffd54a', Math.cos(a) * 0.22, 1.9, Math.sin(a) * 0.22, 6)); }
-    g.add(box(0.55, 0.7, 0.34, '#8e2fb8', 0, 0.85, -0.02)); // 망토
-    return g;
-  },
-  narrator: () => {
-    const g = person({ shirt: '#2c3e63', pants: '#1a2540', hairStyle: 'short' });
-    g.add(box(0.3, 0.4, 0.05, '#f2ead8', 0.28, 0.85, 0.16)); // 대본
-    return g;
-  },
+  singer: (v = 0, cfg = null) => person(cfg || { shirt: '#c026d3', pants: '#1e1e28', hairStyle: 'long', outfit: 'stage', item: 'mic' }),
+  dancer: (v = 0, cfg = null) => person(cfg || { shirt: '#ff4f8b', pants: '#ff4f8b', hairStyle: 'ponytail', outfit: 'dress' }),
+  king: (v = 0, cfg = null) => person(cfg || { shirt: '#7c1fa0', pants: '#4a1266', hair: '#caa64a', hairStyle: 'short', outfit: 'royal', hat: 'crown', hatColor: '#ffd54a' }),
+  narrator: (v = 0, cfg = null) => person(cfg || { shirt: '#2c3e63', pants: '#1a2540', hairStyle: 'short', outfit: 'jacket', item: 'book' }),
   ghost: () => {
     const g = new THREE.Group();
     g.add(sph(0.4, '#eef0ff', 0, 1.2, 0, { transparent: true, opacity: 0.7, emissive: '#8890c0', emissiveIntensity: 0.3 }));
@@ -166,10 +295,18 @@ const builders = {
       box(0.14, 0.6, 0.7, '#caa64a', -0.4, 0.85, 0), box(0.14, 0.6, 0.7, '#caa64a', 0.4, 0.85, 0), box(0.6, 0.5, 0.05, '#c0261a', 0, 1.0, -0.24));
     return g;
   },
+  // 책장 — 앞이 열린 선반 구조 (책이 실제로 보이도록 수정)
   bookshelf: () => {
-    const g = group(box(1.0, 1.8, 0.4, '#6b4423', 0, 0.9, 0));
+    const g = new THREE.Group();
+    const frame = '#6b4423';
+    g.add(box(1.0, 0.08, 0.4, frame, 0, 0.04, 0));   // 바닥
+    g.add(box(1.0, 0.08, 0.4, frame, 0, 1.76, 0));   // 천장
+    g.add(box(0.08, 1.8, 0.4, frame, -0.46, 0.9, 0)); // 왼쪽
+    g.add(box(0.08, 1.8, 0.4, frame, 0.46, 0.9, 0));  // 오른쪽
+    g.add(box(1.0, 0.06, 0.4, frame, 0, 0.9, 0));     // 중간 선반
+    g.add(box(0.92, 1.8, 0.06, '#5d3820', 0, 0.9, -0.17)); // 뒷판
     const cols = ['#c0563e', '#4a7fd4', '#48a860', '#ecc94b', '#8e5bc9'];
-    for (let s = 0; s < 3; s++) for (let i = 0; i < 5; i++) g.add(box(0.12, 0.4, 0.3, cols[(i + s) % 5], -0.4 + i * 0.18, 0.45 + s * 0.55, 0.02));
+    for (const shelfY of [0.5, 1.3]) for (let i = 0; i < 5; i++) g.add(box(0.13, 0.36, 0.28, cols[i % 5], -0.36 + i * 0.18, shelfY, 0.03));
     return g;
   },
   lamp: () => {
@@ -193,8 +330,7 @@ const builders = {
   },
   guitar: () => {
     const g = new THREE.Group();
-    g.add(sph(0.34, '#c9822e', 0, 0.7, 0, { flatShading: false }));
-    g.children[0].scale.set(1, 1.25, 0.32);
+    const body = sph(0.34, '#c9822e', 0, 0.7, 0); body.scale.set(1, 1.25, 0.32); g.add(body);
     g.add(cyl(0.02, 0.02, 0.04, '#111', 0, 0.7, 0.12), box(0.1, 1.0, 0.06, '#7a4a26', 0, 1.5, 0), box(0.16, 0.24, 0.07, '#5d3820', 0, 2.05, 0));
     return g;
   },
@@ -251,7 +387,7 @@ const builders = {
   arch: () => group(box(0.4, 2.2, 0.4, '#b8942e', -1.1, 1.1, 0), box(0.4, 2.2, 0.4, '#b8942e', 1.1, 1.1, 0), box(2.6, 0.4, 0.4, '#caa64a', 0, 2.4, 0)),
   ladder: () => { const g = group(box(0.08, 2.2, 0.08, '#8a5a30', -0.3, 1.1, 0), box(0.08, 2.2, 0.08, '#8a5a30', 0.3, 1.1, 0)); for (let i = 0; i < 6; i++) g.add(box(0.68, 0.06, 0.06, '#9a6a3a', 0, 0.3 + i * 0.36, 0)); return g; },
   platform: () => group(box(1.6, 0.5, 1.6, '#5d3820', 0, 0.25, 0), box(1.6, 0.08, 1.6, '#8a5a30', 0, 0.54, 0)),
-  rope: () => { const g = group(cyl(0.06, 0.08, 0.8, '#caa64a', -0.6, 0.4, 0, 10), cyl(0.06, 0.08, 0.8, '#caa64a', 0.6, 0.4, 0, 10)); const r = torus(0.02, 0.02, '#c0261a', 0, 0.7, 0); r.scale.set(30, 6, 1); r.rotation.z = Math.PI / 2; g.add(box(1.2, 0.04, 0.04, '#c0261a', 0, 0.7, 0)); return g; },
+  rope: () => group(cyl(0.06, 0.08, 0.8, '#caa64a', -0.6, 0.4, 0, 10), cyl(0.06, 0.08, 0.8, '#caa64a', 0.6, 0.4, 0, 10), box(1.2, 0.05, 0.05, '#c0261a', 0, 0.72, 0)),
   curtain_stand: () => group(cyl(0.05, 0.05, 2.2, '#caa64a', -0.9, 1.1, 0, 8), cyl(0.05, 0.05, 2.2, '#caa64a', 0.9, 1.1, 0, 8), box(1.9, 0.08, 0.08, '#caa64a', 0, 2.2, 0), box(1.7, 1.9, 0.06, '#8f1f2d', 0, 1.2, 0, { side: THREE.DoubleSide })),
 
   // === 물건 ===
@@ -262,16 +398,30 @@ const builders = {
   sign: () => group(cyl(0.05, 0.05, 1.2, '#6b4423', 0, 0.6, 0, 8), box(0.9, 0.5, 0.08, '#9a6a3a', 0, 1.15, 0), box(0.8, 0.4, 0.02, '#f2ead8', 0, 1.15, 0.05)),
   flag: () => { const g = group(cyl(0.04, 0.04, 2.2, '#8a5a30', 0, 1.1, 0, 8)); const f = box(0.9, 0.55, 0.03, '#c0261a', 0.47, 1.9, 0, { side: THREE.DoubleSide }); g.add(f); return g; },
   gift: () => group(box(0.6, 0.6, 0.6, '#d94077', 0, 0.3, 0), box(0.64, 0.64, 0.12, '#ffd54a', 0, 0.3, 0), box(0.12, 0.64, 0.64, '#ffd54a', 0, 0.3, 0), sph(0.12, '#ffd54a', 0, 0.64, 0)),
-  clock: () => group(cyl(0.05, 0.05, 1.4, '#5d3820', 0, 0.7, 0, 8), cyl(0.35, 0.35, 0.12, '#6b4423', 0, 1.5, 0, 16), cyl(0.28, 0.28, 0.02, '#f2ead8', 0, 1.5, 0.07, 16), box(0.02, 0.18, 0.02, '#222', 0, 1.56, 0.09)),
+  // 괘종시계 — 시계 판이 정면(+Z)을 바라보도록 수정
+  clock: () => {
+    const g = new THREE.Group();
+    g.add(box(0.44, 1.5, 0.34, '#5d3820', 0, 0.75, 0));   // 몸통
+    g.add(box(0.5, 0.16, 0.4, '#6b4423', 0, 1.5, 0));     // 머리 장식
+    const face = cyl(0.28, 0.28, 0.04, '#f2ead8', 0, 1.15, 0.18, 20); face.rotation.x = Math.PI / 2; g.add(face); // 정면을 보는 시계판
+    const ring = cyl(0.32, 0.32, 0.05, '#caa64a', 0, 1.15, 0.16, 20); ring.rotation.x = Math.PI / 2; g.add(ring); // 테두리
+    g.add(box(0.02, 0.18, 0.02, '#222', 0, 1.2, 0.21));   // 분침
+    g.add(box(0.02, 0.12, 0.02, '#222', 0.06, 1.13, 0.21)); // 시침
+    g.add(sph(0.05, '#c9a23a', 0, 0.55, 0.19, { emissive: '#c9a23a', emissiveIntensity: 0.2 })); // 추
+    return g;
+  },
   easel: () => { const g = group(box(0.9, 1.1, 0.04, '#f2ead8', 0, 1.0, 0)); for (const [x, rz] of [[-0.35, 0.2], [0.35, -0.2]]) { const l = cyl(0.03, 0.03, 1.6, '#8a5a30', x, 0.8, 0.1); l.rotation.z = rz; g.add(l); } g.add(box(0.6, 0.4, 0.02, '#8ac6e0', 0, 1.05, 0.03)); return g; },
   torch: () => group(cyl(0.05, 0.06, 0.9, '#5d3820', 0, 0.45, 0, 8), sph(0.12, '#ff7b1a', 0, 0.95, 0, { emissive: '#ff5a00', emissiveIntensity: 1 }), cone(0.1, 0.25, '#ffd54a', 0, 1.12, 0, 8, { emissive: '#ff9500', emissiveIntensity: 0.9 })),
 };
 
-// 잘못된 헬퍼 호출 방지용 정리 (mushroom/barrel/ball 안전 처리)
+// 안전 처리 소품 (mushroom/barrel/ball)
 builders.mushroom = () => group(cyl(0.12, 0.14, 0.4, '#f0e8d8', 0, 0.2, 0), sph(0.3, '#d94040', 0, 0.44, 0, { flatShading: true }));
 builders.barrel = () => group(cyl(0.32, 0.28, 0.8, '#8a5a30', 0, 0.4, 0, 14), cyl(0.34, 0.34, 0.06, '#5d3820', 0, 0.6, 0, 14), cyl(0.34, 0.34, 0.06, '#5d3820', 0, 0.2, 0, 14));
 builders.ball = (v = 0) => group(sph(0.3, SHIRTS[v % SHIRTS.length], 0, 0.3, 0));
-builders.rope = () => group(cyl(0.06, 0.08, 0.8, '#caa64a', -0.6, 0.4, 0, 10), cyl(0.06, 0.08, 0.8, '#caa64a', 0.6, 0.4, 0, 10), box(1.2, 0.05, 0.05, '#c0261a', 0, 0.72, 0));
+
+// 인물(골격이 있는) 소품인지 판별
+const PEOPLE_TYPES = new Set(['actor', 'child', 'singer', 'dancer', 'king', 'narrator']);
+export function isPerson(typeId) { return PEOPLE_TYPES.has(typeId); }
 
 // ---------- 카테고리 정의 ----------
 export const PROP_CATEGORIES = [

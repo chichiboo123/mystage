@@ -5,7 +5,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createBlockTypes } from './blocks.js';
-import { PROP_CATEGORIES, PROP_INFO, buildProp, ACTOR_OPTIONS, randomActorCfg } from './props.js';
+import { PROP_CATEGORIES, PROP_INFO, buildProp, isPerson } from './props.js';
+import { randomActorCfg, defaultCfgFor, normalizeCfg, buildCustomizerUI } from './character-customizer.js';
+import { POSES, applyPose, DEFAULT_POSE } from './character-animation.js';
+import { createCameraRig } from './camera-controls.js';
 import { EDU_TABS } from './education.js';
 import { LIGHT_PRESETS } from './lighting-presets.js';
 
@@ -33,7 +36,8 @@ const state = {
   mode: 'view', blockType: 'wood', blockShape: 'cube',
   lightType: 'spot', lightMode: 'preset', activePreset: null,
   propCat: 'people', propType: 'actor', propRot: 0, propVariant: 0,
-  actorCfg: { skin: '#e8b88f', hair: '#4a3626', hairStyle: 'short', shirt: '#d94040', pants: '#31435e', face: 'basic' },
+  actorCfg: defaultCfgFor('actor'), actorPose: DEFAULT_POSE,
+  cameraLocked: false,
   activeImage: null,
   perform: false, zones: false, marks: false, markCenter: null, settingCenter: false, seats: true, house: 0.7,
   selected: null, retargeting: false, moveMode: false, dirty: false,
@@ -72,9 +76,14 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.maxPolarAngle = Math.PI * 0.495;
-controls.minDistance = 3;
-controls.maxDistance = 90;
+controls.minDistance = 4;
+controls.maxDistance = 80;
+controls.zoomToCursor = false;
 controls.target.set(0, 2, -6);
+
+// 카메라 잠금·확대/축소·화면 맞추기를 한 곳에서 관리
+const camRig = createCameraRig(camera, controls);
+const HOME_VIEW = { pos: [0.5, 11, 24], tgt: [0.5, 2, -7] };
 
 // ---------------- 하우스 조명 ----------------
 const ambientL = new THREE.AmbientLight(0xffffff, 0.35);
@@ -845,16 +854,24 @@ function refreshPresetButtons() {
 }
 
 // ---------------- 소품 ----------------
+// 소품 그룹에 선택용 userData를 입히되, 인물 골격(rig/part) 정보는 지우지 않고 병합한다
+function tagPropGroup(P) {
+  P.group.traverse(o => { o.userData.kind = 'prop'; o.userData.propId = P.id; });
+  P.group.userData.animPhase = P.animPhase;
+  if (isPerson(P.type)) applyPose(P.group, P.pose, 0); // 정적 자세는 즉시 반영
+}
 function addPropRaw(type, x, y, z, rot = 0, variant = 0, record = false, extra = {}) {
   const P = {
     id: uid(), type, rot, variant,
     scale: extra.scale ?? 1, cfg: extra.cfg ?? null, name: extra.name ?? null, hide: extra.hide ?? false,
+    pose: extra.pose ?? DEFAULT_POSE, animPhase: extra.animPhase ?? Math.random() * Math.PI * 2,
     pos: new THREE.Vector3(x, y, z), group: null,
   };
+  if (isPerson(type)) P.cfg = normalizeCfg(P.cfg, type); // 인물은 항상 완전한 꾸미기값 보유
   P.group = buildProp(type, variant, P.cfg);
   P.group.position.copy(P.pos); P.group.rotation.y = rot; P.group.scale.setScalar(P.scale);
   P.group.visible = !P.hide;
-  P.group.traverse(o => { o.userData = { kind: 'prop', propId: P.id }; });
+  tagPropGroup(P);
   propGroup.add(P.group); props.push(P);
   if (record) pushUndo({ undo: () => deleteProp(P, false) });
   return P;
@@ -864,7 +881,7 @@ function rebuildPropGroup(P) {
   P.group = buildProp(P.type, P.variant, P.cfg);
   P.group.position.copy(P.pos); P.group.rotation.y = P.rot; P.group.scale.setScalar(P.scale);
   P.group.visible = !P.hide;
-  P.group.traverse(o => { o.userData = { kind: 'prop', propId: P.id }; });
+  tagPropGroup(P);
   propGroup.add(P.group);
 }
 function deleteProp(P, record = true) {
@@ -872,7 +889,7 @@ function deleteProp(P, record = true) {
   props.splice(i, 1); propGroup.remove(P.group);
   if (state.selected && state.selected.ref === P) clearSelection();
   if (record) {
-    const d = { type: P.type, x: P.pos.x, y: P.pos.y, z: P.pos.z, rot: P.rot, variant: P.variant, extra: { scale: P.scale, cfg: P.cfg, name: P.name, hide: P.hide } };
+    const d = { type: P.type, x: P.pos.x, y: P.pos.y, z: P.pos.z, rot: P.rot, variant: P.variant, extra: { scale: P.scale, cfg: P.cfg, name: P.name, hide: P.hide, pose: P.pose } };
     pushUndo({ undo: () => addPropRaw(d.type, d.x, d.y, d.z, d.rot, d.variant, false, d.extra) });
   }
 }
@@ -1023,20 +1040,27 @@ function openEditPanel() {
   ep.scaleRow.classList.toggle('hidden', kind === 'light' || kind === 'block' || kind === 'seats');
   ep.lightSec.classList.toggle('hidden', kind !== 'light');
   ep.blockSec.classList.toggle('hidden', kind !== 'block');
-  ep.actorSec.classList.toggle('hidden', !(kind === 'prop' && ref.type === 'actor'));
+  ep.actorSec.classList.toggle('hidden', !(kind === 'prop' && isPerson(ref.type)));
   ep.seatSec.classList.toggle('hidden', kind !== 'seats');
   ep.move.classList.toggle('mode-on', state.moveMode);
   if (kind === 'seats') { showPanel('editPanel'); return; }
   if (kind === 'prop' || kind === 'image') { ep.scale.value = ref.scale; ep.scaleVal.textContent = `${(+ref.scale).toFixed(1)}배`; }
   if (kind === 'light') openLightControls(ref);
   if (kind === 'block') refreshEpBlockGrid();
-  if (kind === 'prop' && ref.type === 'actor') {
-    if (!ref.cfg) ref.cfg = { skin: '#e8b88f', hair: '#4a3626', hairStyle: ref.variant % 2 ? 'long' : 'short', shirt: ACTOR_OPTIONS.shirt[ref.variant % 8], pants: '#31435e', face: 'basic' };
-    buildActorChips(document.getElementById('epActorChips'), () => ref.cfg, cfg => {
-      const old = { ...ref.cfg };
-      ref.cfg = cfg; rebuildPropGroup(ref); setHL(ref.group, true); markDirty();
-      pushUndo({ undo: () => { ref.cfg = old; rebuildPropGroup(ref); } });
-    });
+  if (kind === 'prop' && isPerson(ref.type)) {
+    ref.cfg = normalizeCfg(ref.cfg, ref.type);
+    if (!ref.pose) ref.pose = DEFAULT_POSE;
+    buildCustomizerUI(document.getElementById('epActorChips'),
+      () => ref.cfg,
+      cfg => {
+        const old = { ...ref.cfg };
+        ref.cfg = cfg; rebuildPropGroup(ref); setHL(ref.group, true); markDirty();
+        pushUndo({ undo: () => { ref.cfg = old; rebuildPropGroup(ref); if (state.selected?.ref === ref) setHL(ref.group, true); } });
+      },
+      { pose: {
+        list: POSES, get: () => ref.pose,
+        set: p => { const old = ref.pose; ref.pose = p; applyPose(ref.group, p, 0); markDirty(); pushUndo({ undo: () => { ref.pose = old; applyPose(ref.group, old, 0); } }); },
+      } });
   }
   showPanel('editPanel');
 }
@@ -1091,7 +1115,7 @@ function duplicateSelected() {
   const s = state.selected; if (!s) return;
   if (s.kind === 'prop') {
     const P = s.ref;
-    const N = addPropRaw(P.type, P.pos.x + 1, P.pos.y, P.pos.z + 0.5, P.rot, P.variant, true, { scale: P.scale, cfg: P.cfg ? { ...P.cfg } : null });
+    const N = addPropRaw(P.type, P.pos.x + 1, P.pos.y, P.pos.z + 0.5, P.rot, P.variant, true, { scale: P.scale, cfg: P.cfg ? { ...P.cfg } : null, pose: P.pose });
     selectElement('prop', N);
   } else if (s.kind === 'image') {
     const I = s.ref;
@@ -1257,7 +1281,7 @@ function onLeftClick(ev) {
       return;
     }
     const hit = pick(ev, [...blockGroup.children, groundPlane]); if (!hit) return;
-    const extra = state.propType === 'actor' ? { cfg: { ...state.actorCfg } } : {};
+    const extra = state.propType === 'actor' ? { cfg: { ...state.actorCfg }, pose: state.actorPose } : {};
     const P = addPropRaw(state.propType, snapHalf(hit.point.x), snapHalf(hit.point.y), snapHalf(hit.point.z), state.propRot, state.propVariant, true, extra);
     if (P) { blip(540); markDirty(); renderElementList(); if (state.propType === 'ball') { state.propVariant = (state.propVariant + 1) % 8; refreshPropGhost(); } }
   } else if (isSelectMode()) {
@@ -1301,7 +1325,7 @@ canvas.addEventListener('pointerdown', ev => {
   if (state.boxSelect && isSelectMode() && ev.button === 0 && !state.moveMode && !state.multiMove) {
     const rect = canvas.getBoundingClientRect();
     marquee = { sx: ev.clientX, sy: ev.clientY, rect };
-    controls.enabled = false;
+    camRig.pauseForDrag();
     marqueeEl.classList.remove('hidden');
     updateMarqueeEl(ev.clientX, ev.clientY);
   }
@@ -1312,7 +1336,7 @@ canvas.addEventListener('pointermove', ev => {
 });
 canvas.addEventListener('pointerup', ev => {
   if (marquee) {
-    marqueeEl.classList.add('hidden'); controls.enabled = true;
+    marqueeEl.classList.add('hidden'); camRig.resumeAfterDrag();
     const dist = Math.hypot(ev.clientX - marquee.sx, ev.clientY - marquee.sy);
     const m = marquee; marquee = null; downInfo = null;
     if (dist > 8) { doBoxSelect(m.sx, m.sy, ev.clientX, ev.clientY); return; }
@@ -1425,7 +1449,7 @@ document.getElementById('mpDup').addEventListener('click', () => {
   if (!state.multi.length) return;
   const created = [];
   for (const it of state.multi) {
-    if (it.kind === 'prop') { const P = it.ref; created.push({ kind: 'prop', el: addPropRaw(P.type, P.pos.x + 1, P.pos.y, P.pos.z + 0.5, P.rot, P.variant, false, { scale: P.scale, cfg: P.cfg ? { ...P.cfg } : null }) }); }
+    if (it.kind === 'prop') { const P = it.ref; created.push({ kind: 'prop', el: addPropRaw(P.type, P.pos.x + 1, P.pos.y, P.pos.z + 0.5, P.rot, P.variant, false, { scale: P.scale, cfg: P.cfg ? { ...P.cfg } : null, pose: P.pose }) }); }
     else if (it.kind === 'image') { const I = it.ref; created.push({ kind: 'image', el: addImageRaw({ src: I.src, tex: I.tex, aspect: I.aspect, scale: I.scale, rot: I.rot, x: I.pos.x + 1, y: I.pos.y, z: I.pos.z + 0.5 }, false) }); }
     else if (it.kind === 'light') { const d = serializeLight(it.ref); delete d.id; d.presetId = null; d.name = null; d.pos = [d.pos[0] + 1.2, d.pos[1], d.pos[2]]; d.target = [d.target[0] + 1.2, d.target[1], d.target[2]]; created.push({ kind: 'light', el: createLight(d, false) }); }
     else { const b = blocks.get(keyOf(it.ref.x, it.ref.y, it.ref.z)); const nx = it.ref.x + 1, nz = it.ref.z + 1; if (b && inBounds(nx, it.ref.y, nz) && !blocks.has(keyOf(nx, it.ref.y, nz))) { addBlock(nx, it.ref.y, nz, b.type, b.shape); created.push({ kind: 'block', pos: { x: nx, y: it.ref.y, z: nz } }); } }
@@ -1435,11 +1459,11 @@ document.getElementById('mpDup').addEventListener('click', () => {
 });
 
 // 요소 직렬화/복원 헬퍼 (여러 개 삭제 되돌리기용)
-function serializeProp(P) { return { type: P.type, x: P.pos.x, y: P.pos.y, z: P.pos.z, rot: P.rot, variant: P.variant, scale: P.scale, cfg: P.cfg, name: P.name, hide: P.hide }; }
+function serializeProp(P) { return { type: P.type, x: P.pos.x, y: P.pos.y, z: P.pos.z, rot: P.rot, variant: P.variant, scale: P.scale, cfg: P.cfg, name: P.name, hide: P.hide, pose: P.pose }; }
 function serializeImageEl(I) { return { src: I.src, aspect: I.aspect, scale: I.scale, rot: I.rot, name: I.name, hide: I.hide, x: I.pos.x, y: I.pos.y, z: I.pos.z, tex: I.tex }; }
 function recreateEl(kind, d) {
   if (kind === 'light') createLight(d, false);
-  else if (kind === 'prop') addPropRaw(d.type, d.x, d.y, d.z, d.rot, d.variant, false, { scale: d.scale, cfg: d.cfg, name: d.name, hide: d.hide });
+  else if (kind === 'prop') addPropRaw(d.type, d.x, d.y, d.z, d.rot, d.variant, false, { scale: d.scale, cfg: d.cfg, name: d.name, hide: d.hide, pose: d.pose });
   else if (kind === 'block') addBlock(d.x, d.y, d.z, d.type, d.shape, false, !!d.base);
   else addImageRaw(d, false);
 }
@@ -1553,47 +1577,15 @@ document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click
   if (id === 'floatList') document.getElementById('viewport').classList.remove('list-open');
 }));
 
-// ---------------- 배우 꾸미기 칩 ----------------
-function buildActorChips(container, getCfg, setCfg) {
-  container.innerHTML = '';
-  const cfg = getCfg();
-  const mkRow = (label, child) => {
-    const row = document.createElement('div'); row.className = 'chip-row';
-    const lb = document.createElement('span'); lb.className = 'chip-label'; lb.textContent = label;
-    row.appendChild(lb); row.appendChild(child); container.appendChild(row);
-  };
-  const colorRow = (label, colors, key) => {
-    const set = document.createElement('div'); set.className = 'chip-set';
-    colors.forEach(col => {
-      const b = document.createElement('button'); b.className = 'color-chip' + (cfg[key] === col ? ' active' : '');
-      b.style.background = col; b.title = col;
-      b.addEventListener('click', () => { setCfg({ ...getCfg(), [key]: col }); buildActorChips(container, getCfg, setCfg); });
-      set.appendChild(b);
-    });
-    mkRow(label, set);
-  };
-  const optRow = (label, opts, key) => {
-    const set = document.createElement('div'); set.className = 'chip-set';
-    opts.forEach(o => {
-      const b = document.createElement('button'); b.className = 'opt-chip' + (cfg[key] === o.id ? ' active' : '');
-      b.textContent = o.emoji ? `${o.emoji} ${o.name}` : o.name;
-      b.addEventListener('click', () => { setCfg({ ...getCfg(), [key]: o.id }); buildActorChips(container, getCfg, setCfg); });
-      set.appendChild(b);
-    });
-    mkRow(label, set);
-  };
-  colorRow('피부색', ACTOR_OPTIONS.skin, 'skin');
-  optRow('머리 모양', ACTOR_OPTIONS.hairStyle, 'hairStyle');
-  colorRow('머리색', ACTOR_OPTIONS.hair, 'hair');
-  colorRow('상의 색', ACTOR_OPTIONS.shirt, 'shirt');
-  colorRow('하의 색', ACTOR_OPTIONS.pants, 'pants');
-  optRow('표정', ACTOR_OPTIONS.face, 'face');
-}
+// ---------------- 배우 꾸미기 (놓기 전 미리 꾸미기) ----------------
 function refreshActorCard() {
   const card = document.getElementById('actorCard');
   const show = state.propCat === 'people' && state.propType === 'actor';
   card.classList.toggle('hidden', !show);
-  if (show) buildActorChips(document.getElementById('actorChips'), () => state.actorCfg, cfg => { state.actorCfg = cfg; refreshPropGhost(); });
+  if (show) buildCustomizerUI(document.getElementById('actorChips'),
+    () => state.actorCfg,
+    cfg => { state.actorCfg = cfg; refreshPropGhost(); },
+    { pose: { list: POSES, get: () => state.actorPose, set: p => { state.actorPose = p; refreshActorCard(); } } });
 }
 document.getElementById('btnActorRandom').addEventListener('click', () => {
   state.actorCfg = randomActorCfg();
@@ -1767,7 +1759,7 @@ function serializeScene() {
     name: proj.scenes[proj.active].name,
     blocks: [...blocks.entries()].map(([k, b]) => { const [x, y, z] = k.split(',').map(Number); return [x, y, z, b.type, b.shape === 'slab' ? 1 : 0, b.base ? 1 : 0]; }),
     lights: lights.map(serializeLight),
-    props: props.map(p => ({ type: p.type, x: p.pos.x, y: p.pos.y, z: p.pos.z, rot: p.rot, variant: p.variant, scale: p.scale, cfg: p.cfg, name: p.name, hide: p.hide })),
+    props: props.map(p => ({ type: p.type, x: p.pos.x, y: p.pos.y, z: p.pos.z, rot: p.rot, variant: p.variant, scale: p.scale, cfg: p.cfg, name: p.name, hide: p.hide, pose: p.pose })),
     images: images.map(im => ({ src: im.src, aspect: im.aspect, scale: im.scale, rot: im.rot, name: im.name, hide: im.hide, x: im.pos.x, y: im.pos.y, z: im.pos.z })),
     cues: cues.map(c => ({ name: c.name, lights: c.lights })),
   };
@@ -1785,7 +1777,7 @@ function hydrateScene(s) {
   clearLive();
   for (const [x, y, z, type, slab, base] of s.blocks ?? []) addBlock(x, y, z, type, slab ? 'slab' : 'cube', false, !!base);
   for (const l of s.lights ?? []) createLight(l, false);
-  for (const p of s.props ?? []) addPropRaw(p.type, p.x, p.y, p.z, p.rot, p.variant, false, { scale: p.scale, cfg: p.cfg, name: p.name, hide: p.hide });
+  for (const p of s.props ?? []) addPropRaw(p.type, p.x, p.y, p.z, p.rot, p.variant, false, { scale: p.scale, cfg: p.cfg, name: p.name, hide: p.hide, pose: p.pose });
   for (const im of s.images ?? []) addImageRaw(im);
   cues = (s.cues ?? []).map(c => ({ name: c.name, lights: c.lights }));
   cueSeq = cues.length + 1;
@@ -2079,16 +2071,30 @@ document.getElementById('btnShot').addEventListener('click', () => {
 });
 
 // ---------------- 저장 / 불러오기 ----------------
-function serializeProject() { snapshot(); return { v: 2, preset: proj.preset, house: proj.house, active: proj.active, scenes: proj.scenes, music: music.getState(), seatTransform: proj.seatTransform, arenaShape: proj.arenaShape, marks: state.marks, markCenter: state.markCenter, baseErasable: state.baseErasable }; }
+// v3: 인물 자세·움직임(pose), 확장 꾸미기(cfg), 화면 고정(cameraLocked) 추가.
+// v2 이하 파일도 그대로 불러온다 — 빠진 값은 안전한 기본값으로 채운다(migrateProject).
+function serializeProject() { snapshot(); return { v: 3, preset: proj.preset, house: proj.house, active: proj.active, scenes: proj.scenes, music: music.getState(), seatTransform: proj.seatTransform, arenaShape: proj.arenaShape, marks: state.marks, markCenter: state.markCenter, baseErasable: state.baseErasable, cameraLocked: state.cameraLocked }; }
+// 이전 버전 데이터를 새 구조로 변환 (사라지는 요소가 없도록 안전하게)
+function migrateProject(data) {
+  for (const sc of data.scenes ?? []) {
+    for (const p of sc.props ?? []) {
+      if (p.pose == null) p.pose = DEFAULT_POSE;                 // 자세 기본값
+      if (isPerson(p.type)) p.cfg = normalizeCfg(p.cfg, p.type); // 빠진 꾸미기 항목 채우기
+    }
+  }
+  return data;
+}
 function restoreProject(data) {
   if (!data) return false;
   if (data.preset === 'outdoor') data.preset = 'outdoor_forest';
   if (!PRESETS[data.preset]) return false;
+  migrateProject(data);
   proj.preset = data.preset; proj.house = data.house ?? 0.7; state.house = proj.house;
   proj.seatTransform = data.seatTransform ?? { x: 0, z: 0, rot: 0 };
   proj.arenaShape = data.arenaShape ?? 'circle';
   state.marks = !!data.marks; setSwitch(document.getElementById('tgMarks'), state.marks);
   state.baseErasable = !!data.baseErasable; setSwitch(document.getElementById('tgBaseErase'), state.baseErasable);
+  setCameraLock(!!data.cameraLocked, true);
   state.markCenter = data.markCenter ?? null;
   document.getElementById('markCenterRow').classList.toggle('hidden', !state.marks);
   document.getElementById('houseSlider').value = proj.house * 100;
@@ -2168,11 +2174,30 @@ const VIEWS = {
   audience: { pos: [0.5, 5, 20], tgt: [0.5, 3, -7] }, stage: { pos: [0.5, 3.6, -6], tgt: [0.5, 2.5, 18] },
   bird: { pos: [0.5, 34, 10], tgt: [0.5, 0, -4] }, booth: { pos: [0.5, 11, 24], tgt: [0.5, 2, -7] },
 };
-let camTween = null;
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => {
-  const v = VIEWS[b.dataset.view];
-  camTween = { t: 0, fromP: camera.position.clone(), toP: new THREE.Vector3(...v.pos), fromT: controls.target.clone(), toT: new THREE.Vector3(...v.tgt) };
+  if (camRig.isLocked()) { toast('🔒 화면이 고정되어 있어요 — 먼저 화면 고정을 꺼 주세요'); return; }
+  camRig.fitView(VIEWS[b.dataset.view]);
 }));
+
+// ---------------- 화면 고정 · 확대/축소 · 화면 맞추기 ----------------
+function setCameraLock(on, silent = false) {
+  state.cameraLocked = on;
+  camRig.setLocked(on);
+  setSwitch(document.getElementById('tgCamLock'), on);
+  document.getElementById('camLockPill').classList.toggle('hidden', !on);
+  document.querySelectorAll('.cam-btn.zoomable').forEach(b => b.classList.toggle('disabled', on));
+  if (silent) return;
+  if (on) toast('🔒 화면을 고정했어요 — 회전·이동·확대가 잠겼어요');
+  else toast('🔓 화면 고정을 껐어요 — 다시 자유롭게 움직일 수 있어요');
+}
+document.getElementById('tgCamLock').addEventListener('click', () => setCameraLock(!state.cameraLocked));
+document.getElementById('camLockPill').addEventListener('click', () => setCameraLock(false));
+document.getElementById('camZoomIn').addEventListener('click', () => camRig.zoomBy(0.8));
+document.getElementById('camZoomOut').addEventListener('click', () => camRig.zoomBy(1.25));
+document.getElementById('camFit').addEventListener('click', () => {
+  if (camRig.isLocked()) { toast('🔒 화면이 고정되어 있어요 — 먼저 화면 고정을 꺼 주세요'); return; }
+  camRig.fitView(HOME_VIEW); toast('🎯 무대 중앙으로 화면을 맞췄어요');
+});
 
 // ---------------- 키보드 ----------------
 window.addEventListener('keydown', ev => {
@@ -2221,6 +2246,11 @@ function animate() {
 
   for (const fn of envAnims) fn(t, dt);
 
+  // 인물 자세·움직임 갱신 (골격이 있는 인물만)
+  for (const P of props) {
+    if (P.group?.userData?.rig) applyPose(P.group, P.pose, t);
+  }
+
   for (const Lg of lights) {
     if (Lg.type !== 'moving' || !Lg.on) continue;
     const r = 2.6;
@@ -2242,14 +2272,7 @@ function animate() {
     }
   }
 
-  if (camTween) {
-    camTween.t = Math.min(1, camTween.t + 0.035);
-    const e = 1 - Math.pow(1 - camTween.t, 3);
-    camera.position.lerpVectors(camTween.fromP, camTween.toP, e);
-    controls.target.lerpVectors(camTween.fromT, camTween.toT, e);
-    if (camTween.t >= 1) camTween = null;
-  }
-
+  camRig.update();
   controls.update();
   renderer.render(scene, camera);
 }
@@ -2259,3 +2282,12 @@ buildBlockPalette(); buildLightPalette(); buildPresetGrid(); buildPropUI(); rend
 updateHint();
 newProject('proscenium');
 resize(); animate();
+
+// 개발용 소품 형태 점검 — window.__validateProps() 또는 URL ?dev=1
+window.__validateProps = () => import('./model-validation.js')
+  .then(m => m.runModelValidation({ scene, buildProp, categories: PROP_CATEGORIES }));
+const devParams = new URLSearchParams(location.search);
+if (devParams.has('dev')) {
+  window.__dev = { scene, props, THREE, camRig, addPropRaw, applyPose, get selected() { return state.selected; } };
+}
+if (devParams.has('validate')) window.__validateProps();
