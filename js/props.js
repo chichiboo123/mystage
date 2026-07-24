@@ -389,6 +389,18 @@ const builders = {
   platform: () => group(box(1.6, 0.5, 1.6, '#5d3820', 0, 0.25, 0), box(1.6, 0.08, 1.6, '#8a5a30', 0, 0.54, 0)),
   rope: () => group(cyl(0.06, 0.08, 0.8, '#caa64a', -0.6, 0.4, 0, 10), cyl(0.06, 0.08, 0.8, '#caa64a', 0.6, 0.4, 0, 10), box(1.2, 0.05, 0.05, '#c0261a', 0, 0.72, 0)),
   curtain_stand: () => group(cyl(0.05, 0.05, 2.2, '#caa64a', -0.9, 1.1, 0, 8), cyl(0.05, 0.05, 2.2, '#caa64a', 0.9, 1.1, 0, 8), box(1.9, 0.08, 0.08, '#caa64a', 0, 2.2, 0), box(1.7, 1.9, 0.06, '#8f1f2d', 0, 1.2, 0, { side: THREE.DoubleSide })),
+  // 스모그 머신 — 앞(+Z)의 노즐에서 안개가 뿜어져 나온다 (연기는 main.js의 파티클이 담당)
+  smoke: () => {
+    const g = new THREE.Group();
+    g.add(box(0.78, 0.42, 0.5, '#2b2e36', 0, 0.24, 0, { metalness: 0.45, roughness: 0.45 })); // 본체
+    g.add(box(0.8, 0.06, 0.52, '#3c414c', 0, 0.46, 0, { metalness: 0.5 }));                    // 상판
+    for (const x of [-0.3, 0.3]) g.add(box(0.1, 0.06, 0.5, '#16181d', x, 0.03, 0));            // 받침
+    const nozzle = cyl(0.1, 0.13, 0.22, '#5c626d', 0, 0.26, 0.32, 12, { metalness: 0.7, roughness: 0.3 });
+    nozzle.rotation.x = Math.PI / 2; g.add(nozzle);                                            // 노즐(앞을 향함)
+    g.add(box(0.16, 0.08, 0.02, '#7fd4ff', -0.22, 0.3, 0.26, { emissive: '#57b9ff', emissiveIntensity: 0.9 })); // 표시등
+    g.add(box(0.3, 0.03, 0.02, '#c9a23a', 0.16, 0.12, 0.26));                                  // 손잡이 장식
+    return g;
+  },
 
   // === 물건 ===
   crate: () => { const g = box(0.7, 0.7, 0.7, '#9a6a3a', 0, 0.35, 0); const f = new THREE.Group(); f.add(g); for (const s of [0.36, -0.36]) { f.add(box(0.72, 0.1, 0.05, '#6b4423', 0, 0.5, s), box(0.72, 0.1, 0.05, '#6b4423', 0, 0.2, s)); } return f; },
@@ -475,6 +487,7 @@ export const PROP_CATEGORIES = [
     { id: 'platform', emoji: '🟫', name: '단상 상자', desc: '높이를 주는 플랫폼' },
     { id: 'rope', emoji: '🚧', name: '차단 기둥', desc: '관객 동선을 막는 로프' },
     { id: 'curtain_stand', emoji: '🪟', name: '이동식 커튼', desc: '작은 커튼 스탠드' },
+    { id: 'smoke', emoji: '💨', name: '스모그 머신', desc: '뿌연 안개를 뿜어요 (공연 탭에서 켜고 농도 조절)' },
   ]},
   { id: 'object', name: '물건', emoji: '📦', items: [
     { id: 'crate', emoji: '📦', name: '나무 상자', desc: '쌓아 올릴 수 있는 상자' },

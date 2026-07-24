@@ -9,6 +9,9 @@ import { PROP_CATEGORIES, PROP_INFO, buildProp, isPerson } from './props.js';
 import { randomActorCfg, defaultCfgFor, normalizeCfg, buildCustomizerUI } from './character-customizer.js';
 import { POSES, applyPose, DEFAULT_POSE } from './character-animation.js';
 import { createCameraRig } from './camera-controls.js';
+import { createSmokeSystem } from './smoke-machine.js';
+import { createRecorder, isRecordingSupported, formatDuration } from './recorder.js';
+import { createFirstPerson } from './first-person.js';
 import { EDU_TABS } from './education.js';
 import { LIGHT_PRESETS } from './lighting-presets.js';
 
@@ -44,6 +47,8 @@ const state = {
   boxSelect: false, multi: [], multiMove: false,
   cueMul: 1, cueTransition: null,
   baseErasable: false, // 켜면 기본 무대 바닥(base 블록)도 여느 블록처럼 지울 수 있다
+  smokeOn: false, smokeDensity: 0.55, smokeBurst: 0, // 스모그 머신
+  firstPerson: false,                                 // 일인칭 모드
 };
 
 const proj = { preset: 'proscenium', house: 0.7, active: 0, scenes: [], seatTransform: { x: 0, z: 0, rot: 0 }, arenaShape: 'circle' };
@@ -127,6 +132,9 @@ const imageGroup = new THREE.Group();
 const seatGroup = new THREE.Group();
 scene.add(envGroup, blockGroup, propGroup, lightGroup, imageGroup, seatGroup);
 let envAnims = []; // 환경 애니메이션 (물결, 반딧불이, 행성 회전…)
+
+// 스모그 머신 파티클 (놓인 스모그 머신 소품에서 안개가 뿜어져 나온다)
+const smoke = createSmokeSystem(scene);
 
 const groundPlane = new THREE.Mesh(
   new THREE.PlaneGeometry(200, 200),
@@ -1245,6 +1253,7 @@ const isSelectMode = () => state.mode === 'view' || state.mode === 'perform';
 
 function onHover(ev) {
   ghost.visible = false; if (propGhost) propGhost.visible = false;
+  if (state.firstPerson) return;   // 일인칭 중에는 편집 미리보기를 띄우지 않음
   if (state.mode === 'block') {
     if (state.blockShape === 'erase') {
       const hit = pick(ev, blockGroup.children); if (!hit) return;
@@ -1269,6 +1278,7 @@ function onHover(ev) {
 }
 
 function onLeftClick(ev) {
+  if (state.firstPerson) return;   // 일인칭 중에는 클릭으로 편집하지 않음
   // 무대 센터(간격 눈금) 지정
   if (state.settingCenter) {
     const hit = pick(ev, [...blockGroup.children, groundPlane]);
@@ -1341,6 +1351,7 @@ function onLeftClick(ev) {
   }
 }
 function onRightClick(ev) {
+  if (state.firstPerson) return;
   if (state.settingCenter) { state.settingCenter = false; document.getElementById('btnSetCenter').classList.remove('mode-on'); updateHint(); return; }
   if (state.moveMode) { state.moveMode = false; ep.move.classList.remove('mode-on'); updateHint(); return; }
   if (state.retargeting) { state.retargeting = false; updateHint(); return; }
@@ -1359,7 +1370,7 @@ const marqueeEl = document.getElementById('marquee');
 canvas.addEventListener('pointerdown', ev => {
   downInfo = { x: ev.clientX, y: ev.clientY, button: ev.button, shift: ev.shiftKey };
   // 여러 개 선택 모드: 왼쪽 드래그로 사각형 그리기 (카메라 회전 잠시 끔)
-  if (state.boxSelect && isSelectMode() && ev.button === 0 && !state.moveMode && !state.multiMove) {
+  if (state.boxSelect && isSelectMode() && !state.firstPerson && ev.button === 0 && !state.moveMode && !state.multiMove) {
     const rect = canvas.getBoundingClientRect();
     marquee = { sx: ev.clientX, sy: ev.clientY, rect };
     camRig.pauseForDrag();
@@ -1808,6 +1819,7 @@ function clearLive() {
   for (const P of [...props]) propGroup.remove(P.group); props.length = 0;
   for (const I of [...images]) if (I.group) imageGroup.remove(I.group); images.length = 0;
   undoStack.length = 0; state.selected = null; state.moveMode = false; selBox.visible = false;
+  smoke.clear();   // 이전 장면의 안개가 남지 않도록
   hidePanel('editPanel');
 }
 function hydrateScene(s) {
@@ -1859,6 +1871,7 @@ document.getElementById('btnAddScene').addEventListener('click', addScene);
 function renderElementList() {
   renderElementListInto(document.getElementById('elementList'));
   renderElementListInto(document.getElementById('elementListFloat'));
+  refreshSmokeUI?.();
 }
 function renderElementListInto(box) {
   if (!box) return;
@@ -2020,6 +2033,7 @@ const music = (() => {
     setLoop(v) { loop = v; audio.loop = v; },
     setVol(v) { vol = v; audio.volume = v; if (ytPlayer && ytReady) try { ytPlayer.setVolume(v * 100); } catch {} },
     reset() { try { audio.pause(); } catch {} if (ytPlayer) try { ytPlayer.stopVideo(); } catch {} playing = false; setPlayIcon(); this.ytId = null; nameEl.textContent = '아직 올린 음악이 없어요'; },
+    el: audio, // 영상 촬영 시 음악도 함께 담기 위해 노출
     getState() { return { yt: this.ytId || null, loop, vol }; },
     restore(m) { if (!m) return; loop = m.loop ?? false; vol = m.vol ?? 0.8; audio.volume = vol; document.getElementById('mVol').value = vol * 100; document.getElementById('mLoop').classList.toggle('on', loop); if (m.yt) document.getElementById('ytUrl').value = `https://youtu.be/${m.yt}`; },
     ytId: null,
@@ -2086,6 +2100,7 @@ performPill.addEventListener('click', () => {
   performPill.textContent = state.perform ? '☀️ 공연 끝내기' : '🌙 공연 모드';
   applyHouseLights();
   lights.forEach(updateLightVisual);
+  smoke.setPerform(state.perform);
   toast(state.perform ? '🌙 공연 시작! 여러분의 조명이 무대를 밝혀요' : '☀️ 다시 만들기 모드로 돌아왔어요');
 });
 
@@ -2107,10 +2122,120 @@ document.getElementById('btnShot').addEventListener('click', () => {
   toast('📸 찰칵! 사진을 저장했어요');
 });
 
+// ---------------- 스모그 머신 ----------------
+// 놓인 '스모그 머신' 소품의 노즐 위치·방향을 모아 파티클 시스템에 넘긴다
+function smokeMachines() {
+  const out = [];
+  for (const P of props) {
+    if (P.type !== 'smoke' || P.hide) continue;
+    const s = P.scale ?? 1;
+    // 노즐은 모델 로컬 (0, 0.26, 0.42) — 회전·크기를 반영해 월드 좌표로
+    const lx = 0, ly = 0.26 * s, lz = 0.42 * s;
+    const sin = Math.sin(P.rot), cos = Math.cos(P.rot);
+    out.push({
+      x: P.pos.x + lx * cos + lz * sin,
+      y: P.pos.y + ly,
+      z: P.pos.z - lx * sin + lz * cos,
+      rot: P.rot,
+    });
+  }
+  return out;
+}
+const SMOKE_LABELS = [[0.2, '아주 옅게'], [0.45, '옅게'], [0.7, '보통'], [0.9, '진하게'], [1.01, '아주 진하게']];
+function refreshSmokeUI() {
+  const n = props.filter(p => p.type === 'smoke').length;
+  const el = document.getElementById('smokeCount');
+  el.textContent = n ? `💨 스모그 머신 ${n}대가 놓여 있어요` : '아직 놓인 스모그 머신이 없어요';
+  document.getElementById('smokeDensityVal').textContent = SMOKE_LABELS.find(([v]) => state.smokeDensity < v)?.[1] ?? '보통';
+}
+document.getElementById('tgSmoke').addEventListener('click', function () {
+  state.smokeOn = !state.smokeOn; setSwitch(this, state.smokeOn);
+  if (!state.smokeOn) smoke.clear();
+  refreshSmokeUI(); markDirty();
+  const n = props.filter(p => p.type === 'smoke').length;
+  if (state.smokeOn && !n) toast('💨 안개를 켰어요 — 꾸미기 → 무대장치에서 스모그 머신을 놓아 주세요');
+  else toast(state.smokeOn ? '💨 스모그 머신이 안개를 뿜어요!' : '안개를 껐어요');
+});
+document.getElementById('smokeDensity').addEventListener('input', ev => {
+  state.smokeDensity = ev.target.value / 100; refreshSmokeUI(); markDirty();
+});
+document.getElementById('btnSmokeBurst').addEventListener('click', () => {
+  if (!props.some(p => p.type === 'smoke')) { toast('먼저 스모그 머신을 무대에 놓아 주세요 (꾸미기 → 무대장치)'); return; }
+  if (!state.smokeOn) { state.smokeOn = true; setSwitch(document.getElementById('tgSmoke'), true); }
+  state.smokeBurst = 26; blip(300);
+  toast('💨 푸쉬— 안개를 한 번에 뿜었어요!');
+});
+
+// ---------------- 영상 촬영 (WebM) ----------------
+const recUI = {
+  countdown: document.getElementById('recCountdown'), num: document.getElementById('recCountNum'),
+  controls: document.getElementById('recControls'), time: document.getElementById('recTime'),
+  pause: document.getElementById('recPause'), stop: document.getElementById('recStop'),
+  modal: document.getElementById('videoModal'), video: document.getElementById('videoPreview'),
+  info: document.getElementById('videoInfo'), dl: document.getElementById('videoDownload'),
+  retake: document.getElementById('videoRetake'), close: document.getElementById('videoClose'),
+};
+let lastClip = null; // { url, blob, durationMs }
+const recorder = createRecorder({
+  canvas,
+  audioEls: [music.el, ambient.el].filter(Boolean), // 음악·환경음도 함께 담기 (지원 브라우저)
+  onTick: ms => { recUI.time.textContent = formatDuration(ms); },
+  onState: s => {
+    recUI.controls.classList.toggle('hidden', s !== 'recording' && s !== 'paused');
+    recUI.controls.classList.toggle('paused', s === 'paused');
+    recUI.pause.innerHTML = s === 'paused'
+      ? '<span class="material-icons-outlined">fiber_manual_record</span>다시 녹화'
+      : '<span class="material-icons-outlined">pause</span>일시정지';
+  },
+});
+function releaseClip() { if (lastClip?.url) URL.revokeObjectURL(lastClip.url); lastClip = null; }
+function showClip(clip) {
+  releaseClip(); lastClip = clip;
+  recUI.video.src = clip.url;
+  const mb = clip.blob.size / 1048576;
+  const sizeTxt = mb >= 1 ? `${mb.toFixed(1)}MB` : `${Math.max(1, Math.round(clip.blob.size / 1024))}KB`;
+  recUI.info.textContent = `길이 ${formatDuration(clip.durationMs)} · 크기 ${sizeTxt} · WebM`;
+  recUI.modal.classList.remove('hidden');
+}
+async function startRecording() {
+  if (!isRecordingSupported(canvas)) { toast('이 브라우저는 영상 촬영을 지원하지 않아요 😢 — 크롬·엣지를 써보세요'); return; }
+  if (recorder.getState() !== 'idle') return;
+  document.getElementById('saveMenu').classList.add('hidden');
+  recUI.countdown.classList.remove('hidden');
+  const ok = await recorder.startWithCountdown({
+    onCount: n => {
+      recUI.num.textContent = n > 0 ? String(n) : '시작!';
+      recUI.num.classList.remove('pop'); void recUI.num.offsetWidth; recUI.num.classList.add('pop');
+      blip(n > 0 ? 520 : 780);
+    },
+  });
+  recUI.countdown.classList.add('hidden');
+  if (ok) { recUI.time.textContent = '00:00'; toast('🔴 녹화 중! 화면에 보이는 그대로 담겨요'); }
+  else toast('녹화를 시작하지 못했어요 😢');
+}
+document.getElementById('btnRecord').addEventListener('click', startRecording);
+recUI.pause.addEventListener('click', () => {
+  if (recorder.getState() === 'recording') { recorder.pause(); toast('⏸️ 잠시 멈췄어요 — 다시 녹화를 누르면 이어져요'); }
+  else if (recorder.getState() === 'paused') { recorder.resume(); toast('🔴 다시 녹화해요'); }
+});
+recUI.stop.addEventListener('click', () => {
+  recorder.stop(clip => {
+    if (!clip.blob.size) { toast('녹화된 내용이 없어요 😢'); return; }
+    showClip(clip); toast('🎬 촬영 끝! 미리 보고 마음에 들면 저장하세요');
+  });
+});
+recUI.dl.addEventListener('click', () => {
+  if (!lastClip) return;
+  const a = document.createElement('a'); a.href = lastClip.url; a.download = `my-stage-${Date.now()}.webm`; a.click();
+  toast('⬇️ 영상을 저장했어요!');
+});
+recUI.retake.addEventListener('click', () => { recUI.modal.classList.add('hidden'); recUI.video.pause(); startRecording(); });
+recUI.close.addEventListener('click', () => { recUI.modal.classList.add('hidden'); recUI.video.pause(); });
+
 // ---------------- 저장 / 불러오기 ----------------
 // v3: 인물 자세·움직임(pose), 확장 꾸미기(cfg), 화면 고정(cameraLocked) 추가.
 // v2 이하 파일도 그대로 불러온다 — 빠진 값은 안전한 기본값으로 채운다(migrateProject).
-function serializeProject() { snapshot(); return { v: 3, preset: proj.preset, house: proj.house, active: proj.active, scenes: proj.scenes, music: music.getState(), seatTransform: proj.seatTransform, arenaShape: proj.arenaShape, marks: state.marks, markCenter: state.markCenter, baseErasable: state.baseErasable, cameraLocked: state.cameraLocked }; }
+function serializeProject() { snapshot(); return { v: 3, preset: proj.preset, house: proj.house, active: proj.active, scenes: proj.scenes, music: music.getState(), seatTransform: proj.seatTransform, arenaShape: proj.arenaShape, marks: state.marks, markCenter: state.markCenter, baseErasable: state.baseErasable, cameraLocked: state.cameraLocked, smokeOn: state.smokeOn, smokeDensity: state.smokeDensity }; }
 // 이전 버전 데이터를 새 구조로 변환 (사라지는 요소가 없도록 안전하게)
 function migrateProject(data) {
   for (const sc of data.scenes ?? []) {
@@ -2132,6 +2257,11 @@ function restoreProject(data) {
   state.marks = !!data.marks; setSwitch(document.getElementById('tgMarks'), state.marks);
   state.baseErasable = !!data.baseErasable; setSwitch(document.getElementById('tgBaseErase'), state.baseErasable);
   setCameraLock(!!data.cameraLocked, true);
+  // 스모그 (없는 예전 파일은 꺼짐·보통 농도)
+  state.smokeOn = !!data.smokeOn; setSwitch(document.getElementById('tgSmoke'), state.smokeOn);
+  state.smokeDensity = data.smokeDensity ?? 0.55;
+  document.getElementById('smokeDensity').value = Math.round(state.smokeDensity * 100);
+  smoke.clear();
   state.markCenter = data.markCenter ?? null;
   document.getElementById('markCenterRow').classList.toggle('hidden', !state.marks);
   document.getElementById('houseSlider').value = proj.house * 100;
@@ -2266,6 +2396,8 @@ Object.entries(PRESETS).forEach(([id, p]) => {
 function newProject(id) {
   proj.preset = id; proj.house = 0.7; state.house = 0.7; proj.active = 0; proj.scenes = [freshScene('1장')];
   proj.seatTransform = { x: 0, z: 0, rot: 0 }; proj.arenaShape = 'circle'; state.markCenter = null;
+  if (state.firstPerson) exitFirstPerson();
+  state.smokeOn = false; setSwitch(document.getElementById('tgSmoke'), false); smoke.clear();
   music.reset(); buildEnvironment(id); hydrateScene(proj.scenes[0]); layStarter(id); snapshot();
   renderSceneBar(); renderElementList(); renderCues(); applyHouseLights();
 }
@@ -2299,6 +2431,81 @@ document.getElementById('tgCamLock').addEventListener('click', () => setCameraLo
 document.getElementById('camLockPill').addEventListener('click', () => setCameraLock(false));
 document.getElementById('camZoomIn').addEventListener('click', () => camRig.zoomBy(0.8));
 document.getElementById('camZoomOut').addEventListener('click', () => camRig.zoomBy(1.25));
+// ---------------- 일인칭 모드 ----------------
+const firstPerson = createFirstPerson({
+  scene, camera, blocks, applyPose, worldBounds: WORLD,
+  buildAvatar: (cfg) => buildProp('actor', 0, normalizeCfg(cfg ?? state.actorCfg, 'actor')),
+});
+const fpJoy = document.getElementById('fpJoy'), fpKnob = document.getElementById('fpKnob');
+const fpJumpBtn = document.getElementById('fpJump'), fpExitBtn = document.getElementById('fpExit');
+const fpBtn = document.getElementById('btnFirstPerson');
+
+function enterFirstPerson() {
+  if (state.firstPerson) return;
+  if (camRig.isLocked()) { toast('🔒 화면 고정을 먼저 꺼 주세요'); return; }
+  clearSelection(); clearMulti();
+  state.firstPerson = true;
+  controls.enabled = false;
+  // 무대 한가운데(무대 바닥 위)에서 객석 쪽을 향해 시작 — 바로 무대를 걸어 다닐 수 있게
+  const fr = stageFrame();
+  firstPerson.enter({ x: fr.cx, z: (fr.cz + fr.frontZ) / 2, facing: Math.PI }); // 배우처럼 객석을 바라보며 시작
+  document.getElementById('viewport').classList.add('fp-on');
+  fpJoy.classList.remove('hidden'); fpJumpBtn.classList.remove('hidden'); fpExitBtn.classList.remove('hidden');
+  fpBtn.classList.add('mode-on');
+  setHint('🚶 방향키·조이스틱으로 걷고, 스페이스바·점프 버튼으로 뛰어요! 화면을 끌면 고개가 돌아가요 (ESC = 나가기)');
+  toast('🚶 일인칭 모드! 무대 위를 걸어 다녀 보세요');
+}
+function exitFirstPerson() {
+  if (!state.firstPerson) return;
+  state.firstPerson = false;
+  firstPerson.exit();
+  controls.enabled = true;
+  document.getElementById('viewport').classList.remove('fp-on');
+  fpJoy.classList.add('hidden'); fpJumpBtn.classList.add('hidden'); fpExitBtn.classList.add('hidden');
+  fpBtn.classList.remove('mode-on');
+  camRig.fitView(HOME_VIEW);   // 원래 시점으로 부드럽게 복귀
+  updateHint();
+  toast('👋 일인칭 모드에서 나왔어요');
+}
+fpBtn.addEventListener('click', () => (state.firstPerson ? exitFirstPerson() : enterFirstPerson()));
+fpExitBtn.addEventListener('click', exitFirstPerson);
+
+// 조이스틱 (터치·마우스 모두 지원)
+let joyId = null;
+const JOY_R = 38;
+function joyMove(cx, cy) {
+  const r = fpJoy.getBoundingClientRect();
+  let dx = cx - (r.left + r.width / 2), dy = cy - (r.top + r.height / 2);
+  const d = Math.hypot(dx, dy);
+  if (d > JOY_R) { dx = dx / d * JOY_R; dy = dy / d * JOY_R; }
+  fpKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  firstPerson.setStick(dx / JOY_R, -dy / JOY_R); // 위로 밀면 전진
+}
+fpJoy.addEventListener('pointerdown', ev => { joyId = ev.pointerId; fpJoy.setPointerCapture(joyId); joyMove(ev.clientX, ev.clientY); ev.preventDefault(); });
+fpJoy.addEventListener('pointermove', ev => { if (ev.pointerId === joyId) joyMove(ev.clientX, ev.clientY); });
+const joyEnd = ev => {
+  if (ev.pointerId !== joyId) return;
+  joyId = null; fpKnob.style.transform = ''; firstPerson.setStick(0, 0);
+};
+fpJoy.addEventListener('pointerup', joyEnd);
+fpJoy.addEventListener('pointercancel', joyEnd);
+fpJumpBtn.addEventListener('click', () => firstPerson.jump());
+
+// 화면을 끌면 고개 돌리기 (일인칭일 때만)
+let lookId = null, lookPrev = null;
+canvas.addEventListener('pointerdown', ev => {
+  if (!state.firstPerson) return;
+  lookId = ev.pointerId; lookPrev = { x: ev.clientX, y: ev.clientY };
+});
+canvas.addEventListener('pointermove', ev => {
+  if (!state.firstPerson || ev.pointerId !== lookId || !lookPrev) return;
+  firstPerson.look(ev.clientX - lookPrev.x, ev.clientY - lookPrev.y);
+  lookPrev = { x: ev.clientX, y: ev.clientY };
+});
+const lookEnd = ev => { if (ev.pointerId === lookId) { lookId = null; lookPrev = null; } };
+canvas.addEventListener('pointerup', lookEnd);
+canvas.addEventListener('pointercancel', lookEnd);
+
 document.getElementById('camFit').addEventListener('click', () => {
   if (camRig.isLocked()) { toast('🔒 화면이 고정되어 있어요 — 먼저 화면 고정을 꺼 주세요'); return; }
   camRig.fitView(HOME_VIEW); toast('🎯 무대 중앙으로 화면을 맞췄어요');
@@ -2308,6 +2515,8 @@ document.getElementById('camFit').addEventListener('click', () => {
 window.addEventListener('keydown', ev => {
   if (ev.target.tagName === 'INPUT' || ev.target.tagName === 'SELECT' || ev.target.tagName === 'TEXTAREA') return;
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') { ev.preventDefault(); undo(); return; }
+  // 일인칭 중에는 이동 키가 우선 — 나가기(ESC)만 받는다
+  if (state.firstPerson) { if (ev.key === 'Escape') exitFirstPerson(); return; }
   switch (ev.key) {
     case '1': setMode('view'); break; case '2': setMode('block'); break; case '3': setMode('prop'); break; case '4': setMode('light'); break; case '5': setMode('perform'); break;
     case 'r': case 'R':
@@ -2315,7 +2524,9 @@ window.addEventListener('keydown', ev => {
       else if (state.selected && (state.selected.kind === 'prop' || state.selected.kind === 'image' || state.selected.kind === 'seats')) rotateSelected();
       break;
     case 'Delete': case 'Backspace': if (state.selected && state.selected.kind !== 'seats') { ev.preventDefault(); deleteSelected(); } break;
-    case 'Escape': clearSelection(); clearMulti(); if (state.settingCenter) { state.settingCenter = false; document.getElementById('btnSetCenter').classList.remove('mode-on'); } updateHint(); break;
+    case 'Escape':
+      if (state.firstPerson) { exitFirstPerson(); break; }
+      clearSelection(); clearMulti(); if (state.settingCenter) { state.settingCenter = false; document.getElementById('btnSetCenter').classList.remove('mode-on'); } updateHint(); break;
   }
 });
 
@@ -2347,7 +2558,10 @@ const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   resize();
-  const t = clock.getElapsedTime(), dt = Math.min(0.05, clock.getDelta());
+  // 주의: Clock.getElapsedTime() 이 내부에서 델타를 소비하므로 getDelta() 를 먼저 부른다.
+  // (반대로 부르면 dt 가 항상 0에 가까워져 시간 기반 애니메이션이 멈춘다)
+  const dt = Math.min(0.05, clock.getDelta());
+  const t = clock.elapsedTime;
 
   for (const fn of envAnims) fn(t, dt);
 
@@ -2377,8 +2591,18 @@ function animate() {
     }
   }
 
-  camRig.update();
-  controls.update();
+  // 스모그 머신 안개
+  smoke.update(dt, state.smokeOn ? smokeMachines() : [], {
+    on: state.smokeOn, density: state.smokeDensity, burst: state.smokeBurst,
+  });
+  state.smokeBurst = 0;
+
+  if (state.firstPerson) {
+    firstPerson.update(dt, t);   // 일인칭: 카메라를 사람 눈높이로 직접 제어
+  } else {
+    camRig.update();
+    controls.update();
+  }
   renderer.render(scene, camera);
 }
 
@@ -2393,7 +2617,7 @@ window.__validateProps = () => import('./model-validation.js')
   .then(m => m.runModelValidation({ scene, buildProp, categories: PROP_CATEGORIES }));
 const devParams = new URLSearchParams(location.search);
 if (devParams.has('dev')) {
-  window.__dev = { scene, props, THREE, camRig, addPropRaw, applyPose, blocks, proj, PRESETS, stageFrame, buildShareLink, loadFromHash, serializeProject, get selected() { return state.selected; } };
+  window.__dev = { scene, props, THREE, camera, camRig, addPropRaw, applyPose, blocks, proj, PRESETS, stageFrame, buildShareLink, loadFromHash, serializeProject, smoke, smokeMachines, firstPerson, recorder, state, enterFirstPerson, exitFirstPerson, get selected() { return state.selected; } };
 }
 if (devParams.has('validate')) window.__validateProps();
 
