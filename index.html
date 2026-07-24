@@ -45,6 +45,7 @@
       <div id="saveMenu" class="menu hidden">
         <button id="btnSave"><span class="material-icons-outlined">save</span>브라우저에 저장</button>
         <button id="btnShot"><span class="material-icons-outlined">photo_camera</span>사진 찍기 (PNG)</button>
+        <button id="btnShareLink"><span class="material-icons-outlined">link</span>링크로 공유</button>
         <button id="btnExport"><span class="material-icons-outlined">file_download</span>파일로 내보내기</button>
         <button id="btnImport"><span class="material-icons-outlined">file_upload</span>파일 불러오기</button>
       </div>
@@ -264,6 +265,7 @@
         <button id="epDelete" class="btn danger"><span class="material-icons-outlined">delete</span>삭제</button>
       </div>
       <label id="epScaleRow" class="lp-row col hidden"><span>크기 <em id="epScaleVal"></em></span><input type="range" id="epScale" min="0.4" max="3" step="0.1"></label>
+      <label id="epRotRow" class="lp-row col hidden"><span>회전 <em id="epRotVal"></em></span><input type="range" id="epRot" min="0" max="360" step="1"><span class="rot-hint">자유롭게 돌리고, 45°마다 자석처럼 딱 맞아요</span></label>
       <div id="epLightSec" class="hidden">
         <label class="lp-row"><span>전원</span><button id="lpPower" class="switch on" role="switch" aria-checked="true"></button></label>
         <div class="lp-row col"><span>색깔 (컬러 젤)</span>

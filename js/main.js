@@ -104,11 +104,16 @@ let envLightCfg = { bg: 0x17181d, hemiSky: 0xbfd4ff };
 function applyHouseLights() {
   const h = state.house;
   const perf = state.perform ? 0.1 : 1;
-  ambientL.intensity = HOUSE_BASE.ambient * h * perf + 0.03;
-  hemi.intensity = HOUSE_BASE.hemi * h * perf + 0.02;
-  sun.intensity = HOUSE_BASE.sun * h * perf;
+  // 슬라이더 상단(0.6 이상)에서 부스트가 서서히 켜져, 최댓값에서는 완전히 불 켜진 것처럼 밝아진다.
+  // 낮은·중간 밝기는 기존과 거의 동일하게 유지.
+  const t = Math.max(0, (h - 0.6) / 0.4); // 0.6→0, 1.0→1
+  const boost = t * t * perf;
+  ambientL.intensity = HOUSE_BASE.ambient * h * perf + 0.03 + 0.55 * boost;
+  hemi.intensity = HOUSE_BASE.hemi * h * perf + 0.02 + 0.65 * boost;
+  sun.intensity = HOUSE_BASE.sun * h * perf + 1.5 * boost;
   const bg = new THREE.Color(envLightCfg.bg);
   if (state.perform) bg.multiplyScalar(0.16);
+  else if (boost > 0) bg.lerp(new THREE.Color(0x2a2d36), boost * 0.6); // 최대에서 배경도 살짝 밝게
   scene.background = bg;
   if (scene.fog) scene.fog.color.copy(bg);
 }
@@ -331,7 +336,7 @@ function outdoorPreset(theme) {
   const cfg = {
     forest: { name: '야외 무대 · 숲속', emoji: '🌲', desc: '나무와 바위에 둘러싸인 숲속 공연장', env: { bg: 0x87b8e8, hemiSky: 0xbfe0ff, fog: [0x9cc4e4, 34, 120] }, bounds: { x0: -7, x1: 9, z0: -11, z1: -1, y: 2 } },
     sea:    { name: '야외 무대 · 바닷가', emoji: '🌊', desc: '파도와 수평선이 보이는 해변 축제무대', env: { bg: 0x8fd2ee, hemiSky: 0xd6f2ff, fog: [0xa8dcee, 45, 140] }, bounds: { x0: -8, x1: 10, z0: -12, z1: -1, y: 2 } },
-    space:  { name: '야외 무대 · 우주', emoji: '🚀', desc: '달 표면 크레이터 위의 우주기지 무대', env: { bg: 0x070811, hemiSky: 0x5a6a9a }, bounds: { x0: -6, x1: 8, z0: -13, z1: 0, y: 2 } },
+    space:  { name: '야외 무대 · 우주', emoji: '🚀', desc: '달 표면 크레이터 위의 우주기지 무대', env: { bg: 0x070811, hemiSky: 0x5a6a9a }, bounds: { x0: -6, x1: 7, z0: -13, z1: 0, y: 2 } },
   }[theme];
   return {
     name: cfg.name, emoji: cfg.emoji, desc: cfg.desc,
@@ -502,7 +507,7 @@ const PRESETS = {
       const l2 = makeCurtain(2.4, 4.2, '#24437c'); l2.position.set(9.8, 2.9, -14.4); l2.rotation.y = -Math.PI / 3; envGroup.add(l2);
       for (const z of [-10, -4, 2, 6]) makeBatten(-10, 11, 9.5, z);
     },
-    starter() { platform(-9, 9, -14, -7, 'wood', 'darkwood'); platform(-5, 6, -7, 6, 'wood', 'darkwood'); },
+    starter() { platform(-9, 9, -14, -7, 'wood', 'darkwood'); platform(-6, 6, -7, 6, 'wood', 'darkwood'); },
     seats() {
       // 돌출부(x -5~6, 앞쪽 z=6)에서 넉넉히 떨어뜨려 관객 시야를 확보
       const list = []; const cx = 0.5;
@@ -565,11 +570,7 @@ const PRESETS = {
       for (const x of [-9, -3, 3, 9]) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 20, 8), envMat('#111318', { metalness: 0.5 })); b.rotation.x = Math.PI / 2; b.position.set(x + 0.5, 8.6, -2.5); envGroup.add(b); }
     },
     starter() {
-      // 이동식 플랫폼 두 개 + 두 방향으로 놓인 이동식 객석 → "마음대로 바꿔 보세요"
-      platform(-7, -5, -8, -6, 'blackdeck', 'blackdeck', 1);
-      platform(4, 6, -3, -1, 'blackdeck', 'blackdeck', 1);
-      for (let i = 0; i < 5; i++) addPropRaw('chair', -4 + i * 1.4, 0, 4.5, Math.PI, i);
-      for (let i = 0; i < 4; i++) addPropRaw('chair', -8.5, 0, -3 + i * 1.4, Math.PI / 2, i);
+      // 블랙박스는 텅 빈 검은 공간에서 시작 — 무대·객석을 원하는 대로 직접 배치
     },
     seats: () => [],
   },
@@ -1016,6 +1017,7 @@ const ep = {
   move: document.getElementById('epMove'), rotate: document.getElementById('epRotate'),
   dup: document.getElementById('epDup'), del: document.getElementById('epDelete'),
   scaleRow: document.getElementById('epScaleRow'), scale: document.getElementById('epScale'), scaleVal: document.getElementById('epScaleVal'),
+  rotRow: document.getElementById('epRotRow'), rot: document.getElementById('epRot'), rotVal: document.getElementById('epRotVal'),
   lightSec: document.getElementById('epLightSec'), blockSec: document.getElementById('epBlockSec'), actorSec: document.getElementById('epActorSec'),
   seatSec: document.getElementById('epSeatSec'),
 };
@@ -1038,11 +1040,14 @@ function openEditPanel() {
   ep.dup.classList.toggle('hidden', kind === 'block' || kind === 'seats');
   ep.del.classList.toggle('hidden', kind === 'seats' || (kind === 'block' && baseLocked(ref.x, ref.y, ref.z)));
   ep.scaleRow.classList.toggle('hidden', kind === 'light' || kind === 'block' || kind === 'seats');
+  // 회전: 소품·이미지·객석은 자유 회전(45° 자석 스냅). 조명·블록은 숨김
+  ep.rotRow.classList.toggle('hidden', kind === 'light' || kind === 'block');
   ep.lightSec.classList.toggle('hidden', kind !== 'light');
   ep.blockSec.classList.toggle('hidden', kind !== 'block');
   ep.actorSec.classList.toggle('hidden', !(kind === 'prop' && isPerson(ref.type)));
   ep.seatSec.classList.toggle('hidden', kind !== 'seats');
   ep.move.classList.toggle('mode-on', state.moveMode);
+  if (!ep.rotRow.classList.contains('hidden')) setRotSlider(currentRotOf(s));
   if (kind === 'seats') { showPanel('editPanel'); return; }
   if (kind === 'prop' || kind === 'image') { ep.scale.value = ref.scale; ep.scaleVal.textContent = `${(+ref.scale).toFixed(1)}배`; }
   if (kind === 'light') openLightControls(ref);
@@ -1089,22 +1094,54 @@ ep.scale.addEventListener('change', () => {
   pushUndo({ undo: () => { ref.scale = old; if (kind === 'prop') ref.group.scale.setScalar(old); else rebuildImage(ref); } });
 });
 
+const ROT_STEP = Math.PI / 4; // 45° — 버튼/R 키는 45°씩 회전
+const TAU = Math.PI * 2;
+// 45°(π/4) 배수에 가까우면 자석처럼 스냅
+function snapRot(rad, thresholdDeg = 5) {
+  const step = Math.PI / 4;
+  const nearest = Math.round(rad / step) * step;
+  return Math.abs(rad - nearest) <= thresholdDeg * Math.PI / 180 ? nearest : rad;
+}
+function currentRotOf(s) {
+  if (s.kind === 'seats') return proj.seatTransform.rot || 0;
+  return s.ref.rot || 0;
+}
+function applyRotTo(s, rad) {
+  if (s.kind === 'seats') { proj.seatTransform.rot = ((rad % TAU) + TAU) % TAU; rebuildSeats(); seatHL(true); }
+  else { s.ref.rot = ((rad % TAU) + TAU) % TAU; s.ref.group.rotation.y = s.ref.rot; }
+}
+function setRotSlider(rad) {
+  const deg = Math.round((((rad % TAU) + TAU) % TAU) * 180 / Math.PI);
+  ep.rot.value = deg % 360;
+  ep.rotVal.textContent = `${deg % 360}°`;
+}
 function rotateSelected() {
   const s = state.selected; if (!s) return;
-  if (s.kind === 'seats') {
-    const old = proj.seatTransform.rot;
-    proj.seatTransform.rot = (old + Math.PI / 2) % (Math.PI * 2);
-    rebuildSeats(); seatHL(true);
-    pushUndo({ undo: () => { proj.seatTransform.rot = old; rebuildSeats(); } });
-    blip(500); markDirty(); return;
-  }
-  if (s.kind !== 'prop' && s.kind !== 'image') return;
-  const ref = s.ref; const old = ref.rot;
-  ref.rot = (ref.rot + Math.PI / 2) % (Math.PI * 2);
-  ref.group.rotation.y = ref.rot;
-  pushUndo({ undo: () => { ref.rot = old; ref.group.rotation.y = old; } });
+  if (s.kind !== 'seats' && s.kind !== 'prop' && s.kind !== 'image') return;
+  const old = currentRotOf(s);
+  // 다음 45° 눈금으로 딱 맞춰 회전
+  const next = Math.round((old + ROT_STEP - 1e-4) / ROT_STEP) * ROT_STEP;
+  applyRotTo(s, next);
+  setRotSlider(currentRotOf(s));
+  pushUndo({ undo: () => { applyRotTo(s, old); if (state.selected === s) setRotSlider(old); } });
   blip(500); markDirty();
 }
+// 자유 회전 슬라이더 (45° 자석 스냅)
+ep.rot.addEventListener('input', () => {
+  const s = state.selected; if (!s || (s.kind !== 'prop' && s.kind !== 'image' && s.kind !== 'seats')) return;
+  if (ep.rot._start === undefined) ep.rot._start = currentRotOf(s);
+  const rad = snapRot((+ep.rot.value) * Math.PI / 180);
+  applyRotTo(s, rad);
+  setRotSlider(rad);
+  markDirty();
+});
+ep.rot.addEventListener('change', () => {
+  const s = state.selected; const old = ep.rot._start; ep.rot._start = undefined;
+  if (!s || old === undefined) return;
+  const now = currentRotOf(s);
+  if (Math.abs(now - old) < 1e-4) return;
+  pushUndo({ undo: () => { applyRotTo(s, old); if (state.selected === s) setRotSlider(old); } });
+});
 document.getElementById('epSeatReset').addEventListener('click', () => {
   const old = { ...proj.seatTransform };
   proj.seatTransform = { x: 0, z: 0, rot: 0 }; rebuildSeats(); seatHL(true);
@@ -2118,6 +2155,74 @@ document.getElementById('btnExport').addEventListener('click', () => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'my-stage.json'; a.click(); URL.revokeObjectURL(a.href);
   toast('📤 파일로 내보냈어요 — 친구와 나눠 보세요!');
 });
+// ---------------- 링크로 공유 (자체 완결형: 데이터를 압축해 URL에 담음) ----------------
+// 서버가 없는 정적 웹앱이라 데이터를 URL에 넣는다. 링크를 최대한 짧게 하려고
+// (1) JSON을 deflate로 압축하고 (2) URL-safe base64로 인코딩해 위치 해시(#p=)에 담는다.
+function bytesToB64url(bytes) {
+  let bin = ''; const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlToBytes(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
+  const bin = atob(s); const a = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a;
+}
+const canCompress = typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined';
+async function deflate(str) {
+  const cs = new CompressionStream('deflate-raw');
+  const w = cs.writable.getWriter(); w.write(new TextEncoder().encode(str)); w.close();
+  return new Uint8Array(await new Response(cs.readable).arrayBuffer());
+}
+async function inflate(bytes) {
+  const ds = new DecompressionStream('deflate-raw');
+  const w = ds.writable.getWriter(); w.write(bytes); w.close();
+  return new TextDecoder().decode(await new Response(ds.readable).arrayBuffer());
+}
+async function buildShareLink() {
+  const json = JSON.stringify(serializeProject());
+  let payload, scheme;
+  if (canCompress) { payload = bytesToB64url(await deflate(json)); scheme = 'p'; }        // 압축본
+  else { payload = bytesToB64url(new TextEncoder().encode(json)); scheme = 'u'; }           // 압축 미지원 폴백
+  const base = location.origin + location.pathname;
+  return { url: `${base}#${scheme}=${payload}`, jsonLen: json.length };
+}
+async function loadFromHash() {
+  const h = location.hash || '';
+  const m = h.match(/^#(p|u)=(.+)$/);
+  if (!m) return false;
+  try {
+    const bytes = b64urlToBytes(m[2]);
+    const json = m[1] === 'p' ? await inflate(bytes) : new TextDecoder().decode(bytes);
+    const ok = restoreProject(JSON.parse(json));
+    if (ok) { history.replaceState(null, '', location.pathname); return true; } // 주소창 깔끔하게
+  } catch { toast('공유 링크를 읽을 수 없어요 😢'); }
+  return false;
+}
+document.getElementById('btnShareLink').addEventListener('click', async () => {
+  try {
+    const { url, jsonLen } = await buildShareLink();
+    let copied = false;
+    try { await navigator.clipboard.writeText(url); copied = true; } catch { /* 권한 없음 */ }
+    if (url.length > 16000) toast('🔗 링크가 만들어졌지만 조금 길어요 (사진을 많이 넣으면 링크가 길어져요). 긴 작품은 파일 내보내기를 추천해요');
+    else if (copied) toast('🔗 공유 링크를 복사했어요! 붙여넣기 해서 나눠 보세요');
+    else toast('🔗 링크가 만들어졌어요 — 아래 상자에서 복사하세요');
+    if (!copied) showShareBox(url);
+    void jsonLen;
+  } catch { toast('링크를 만들 수 없어요 😢 — 파일로 내보내기를 이용해 보세요'); }
+});
+// 클립보드 복사가 막힌 환경을 위한 수동 복사 상자
+function showShareBox(url) {
+  let box = document.getElementById('shareBox');
+  if (!box) {
+    box = document.createElement('div'); box.id = 'shareBox'; box.className = 'share-box';
+    box.innerHTML = '<div class="sb-head">🔗 이 링크를 복사해 나눠 보세요<button class="sb-x" title="닫기">✕</button></div><textarea readonly rows="3"></textarea>';
+    document.body.appendChild(box);
+    box.querySelector('.sb-x').addEventListener('click', () => box.classList.add('hidden'));
+  }
+  box.classList.remove('hidden');
+  const ta = box.querySelector('textarea'); ta.value = url; ta.focus(); ta.select();
+}
 document.getElementById('btnImport').addEventListener('click', () => document.getElementById('fileInput').click());
 document.getElementById('fileInput').addEventListener('change', ev => {
   const file = ev.target.files[0]; if (!file) return;
@@ -2206,7 +2311,7 @@ window.addEventListener('keydown', ev => {
   switch (ev.key) {
     case '1': setMode('view'); break; case '2': setMode('block'); break; case '3': setMode('prop'); break; case '4': setMode('light'); break; case '5': setMode('perform'); break;
     case 'r': case 'R':
-      if (state.mode === 'prop') { state.propRot = (state.propRot + Math.PI / 2) % (Math.PI * 2); if (propGhost) propGhost.rotation.y = state.propRot; }
+      if (state.mode === 'prop') { state.propRot = (state.propRot + ROT_STEP) % (Math.PI * 2); if (propGhost) propGhost.rotation.y = state.propRot; }
       else if (state.selected && (state.selected.kind === 'prop' || state.selected.kind === 'image' || state.selected.kind === 'seats')) rotateSelected();
       break;
     case 'Delete': case 'Backspace': if (state.selected && state.selected.kind !== 'seats') { ev.preventDefault(); deleteSelected(); } break;
@@ -2288,6 +2393,9 @@ window.__validateProps = () => import('./model-validation.js')
   .then(m => m.runModelValidation({ scene, buildProp, categories: PROP_CATEGORIES }));
 const devParams = new URLSearchParams(location.search);
 if (devParams.has('dev')) {
-  window.__dev = { scene, props, THREE, camRig, addPropRaw, applyPose, get selected() { return state.selected; } };
+  window.__dev = { scene, props, THREE, camRig, addPropRaw, applyPose, blocks, proj, PRESETS, stageFrame, buildShareLink, loadFromHash, serializeProject, get selected() { return state.selected; } };
 }
 if (devParams.has('validate')) window.__validateProps();
+
+// 공유 링크(#p=/#u=)로 열렸으면 그 작품을 불러오고 시작 화면을 건너뛴다
+loadFromHash().then(ok => { if (ok) { welcome.classList.add('hidden'); toast('🔗 공유된 작품을 불러왔어요!'); } });

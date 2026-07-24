@@ -675,6 +675,21 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); cursor: p
 /* 화면 고정 알약 표시 */
 .perform-pill.lock { top: 12px; left: 50%; transform: translateX(-50%); background: #3b2a75; color: #fff; }
 .perform-pill.lock:hover { transform: translateX(-50%) scale(1.03); }
+
+/* 회전 슬라이더 안내 */
+.rot-hint { font-size: 11px; color: var(--color-gray-500); margin-top: 3px; font-weight: 500; }
+
+/* 링크 공유 수동 복사 상자 */
+.share-box {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 210;
+  width: min(520px, 92vw); background: var(--color-white);
+  border: 1px solid var(--color-gray-300); border-radius: var(--border-radius-lg);
+  box-shadow: 0 12px 36px rgba(0,0,0,.28); padding: 12px 14px;
+}
+.share-box .sb-head { display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; font-weight: 700; color: var(--color-gray-700); margin-bottom: 8px; }
+.share-box .sb-x { background: none; border: none; cursor: pointer; color: var(--color-gray-500); font-size: 15px; }
+.share-box .sb-x:hover { color: var(--color-error); }
+.share-box textarea { width: 100%; resize: none; font-size: 12px; font-family: monospace; border: 1px solid var(--color-gray-300); border-radius: var(--border-radius-md); padding: 8px; color: var(--color-gray-900); background: var(--color-gray-100); }
 .arena-shape {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 9px 4px; border-radius: var(--border-radius-md); cursor: pointer;
