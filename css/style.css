@@ -736,6 +736,15 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); cursor: p
 .fp-jump span { font-size: 12px; font-weight: 700; }
 .fp-jump:active { transform: scale(.94); }
 .perform-pill.fp-exit { top: 12px; left: auto; right: 12px; background: #24437c; color: #fff; }
+/* 일인칭 조작 안내 (잠깐 보였다가 흐려짐) */
+.fp-guide {
+  position: absolute; left: 50%; top: 62px; transform: translateX(-50%); z-index: 21;
+  display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; pointer-events: none;
+  background: rgba(20,22,30,.72); color: #fff; border-radius: 999px; padding: 8px 16px;
+  font-size: 12.5px; max-width: 92%; transition: opacity .8s ease;
+}
+.fp-guide b { color: #ffd54a; }
+.fp-guide.fade { opacity: 0; }
 /* 일인칭 중에는 편집용 오버레이를 숨겨 화면을 깨끗하게 */
 #viewport.fp-on #viewButtons,
 #viewport.fp-on #camControls,

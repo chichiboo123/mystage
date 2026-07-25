@@ -43,7 +43,7 @@ void main() {
   gl_FragColor = vec4(uColor, a);
 }`;
 
-export function createSmokeSystem(scene, { max = 500 } = {}) {
+export function createSmokeSystem(scene, { max = 620 } = {}) {
   const pos = new Float32Array(max * 3);
   const size = new Float32Array(max);
   const alpha = new Float32Array(max);
@@ -65,7 +65,7 @@ export function createSmokeSystem(scene, { max = 500 } = {}) {
     uniforms: {
       map: { value: makePuffTexture() },
       uOpacity: { value: 1 },
-      uColor: { value: new THREE.Color(0xe8ecf4) },
+      uColor: { value: new THREE.Color(0xdfe6f2) },
     },
     vertexShader: VERT, fragmentShader: FRAG,
     transparent: true, depthWrite: false,
@@ -77,21 +77,24 @@ export function createSmokeSystem(scene, { max = 500 } = {}) {
   points.raycast = () => {};      // 클릭 선택 방해 금지
   scene.add(points);
 
-  function spawn(x, y, z, dirX, dirZ, power) {
+  const baseY = new Float32Array(max);  // 뿜어져 나온 바닥 높이 (그 아래로는 가라앉지 않게)
+
+  function spawn(x, y, z, dirX, dirZ, power, span) {
     if (alive >= max) return;
     const i = alive++;
-    const spread = 0.35;
+    const spread = 0.4;
     pos[i * 3] = x + (Math.random() - 0.5) * 0.3;
     pos[i * 3 + 1] = y + (Math.random() - 0.5) * 0.1;
     pos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.3;
-    // 노즐 방향으로 뿜고 살짝 퍼지며, 아주 천천히 떠오른다
-    vel[i * 3] = dirX * (0.7 + Math.random() * 0.7) * power + (Math.random() - 0.5) * spread;
-    vel[i * 3 + 1] = 0.12 + Math.random() * 0.22;
-    vel[i * 3 + 2] = dirZ * (0.7 + Math.random() * 0.7) * power + (Math.random() - 0.5) * spread;
+    // 노즐 방향으로 뿜고 옆으로도 퍼지며, 천천히 떠오른다
+    vel[i * 3] = dirX * (0.8 + Math.random() * 0.8) * power + (Math.random() - 0.5) * spread;
+    vel[i * 3 + 1] = 0.22 + Math.random() * 0.26;
+    vel[i * 3 + 2] = dirZ * (0.8 + Math.random() * 0.8) * power + (Math.random() - 0.5) * spread;
     age[i] = 0;
-    life[i] = 4.5 + Math.random() * 3.5;
-    size[i] = 26 + Math.random() * 26;
-    grow[i] = 14 + Math.random() * 16;
+    life[i] = span * (0.75 + Math.random() * 0.5);
+    size[i] = 30 + Math.random() * 30;
+    grow[i] = 11 + Math.random() * 13;
+    baseY[i] = y - 0.35;
     alpha[i] = 0;
   }
 
@@ -99,7 +102,8 @@ export function createSmokeSystem(scene, { max = 500 } = {}) {
     const last = --alive;
     if (i !== last) {
       for (let k = 0; k < 3; k++) { pos[i * 3 + k] = pos[last * 3 + k]; vel[i * 3 + k] = vel[last * 3 + k]; }
-      age[i] = age[last]; life[i] = life[last]; size[i] = size[last]; grow[i] = grow[last]; alpha[i] = alpha[last];
+      age[i] = age[last]; life[i] = life[last]; size[i] = size[last]; grow[i] = grow[last];
+      alpha[i] = alpha[last]; baseY[i] = baseY[last];
     }
   }
 
@@ -109,16 +113,19 @@ export function createSmokeSystem(scene, { max = 500 } = {}) {
 
     // machines: [{ x, y, z, rot }] — 노즐 위치와 방향(rot: y축 회전)
     // opts: { on, density(0~1), burst(이번 프레임 추가 분사량) }
-    update(dt, machines, { on = true, density = 0.6, burst = 0 } = {}) {
+    update(dt, machines, { on = true, density = 0.6, burst = 0, driftZ = 0, driftX = 0 } = {}) {
+      // 농도가 높을수록 더 많이·더 멀리·더 오래 간다 (객석까지 은은하게 깔리도록)
+      const span = 7 + density * 6;                 // 수명(초)
+      const drift = 0.10 + density * 0.30;          // 무대 앞(객석) 쪽으로 흐르는 힘
       // 1) 방출
       if (on && machines.length) {
-        const perMachine = (5 + density * 26) * dt + burst;
+        const perMachine = (4 + density * 16) * dt + burst;
         for (const m of machines) {
           emitCarry += perMachine;
           const n = Math.floor(emitCarry);
           emitCarry -= n;
           const dx = Math.sin(m.rot ?? 0), dz = Math.cos(m.rot ?? 0);
-          for (let k = 0; k < n; k++) spawn(m.x, m.y, m.z, dx, dz, 0.6 + density * 0.9);
+          for (let k = 0; k < n; k++) spawn(m.x, m.y, m.z, dx, dz, 0.7 + density * 0.9, span);
         }
       }
       // 2) 갱신
@@ -126,17 +133,25 @@ export function createSmokeSystem(scene, { max = 500 } = {}) {
         age[i] += dt;
         if (age[i] >= life[i]) { kill(i); continue; }
         const u = age[i] / life[i];
-        // 공기 저항으로 점점 느려지고, 바닥에 깔리듯 퍼진다
-        const drag = Math.max(0, 1 - dt * 0.85);
+        // 저항을 약하게 둬 연기가 무대 전체로 넓게 퍼지도록 한다
+        const drag = Math.max(0, 1 - dt * 0.3);
         vel[i * 3] *= drag; vel[i * 3 + 2] *= drag;
-        vel[i * 3 + 1] = vel[i * 3 + 1] * (1 - dt * 0.5) + 0.02 * dt;
+        // 무대 앞쪽(+Z, 객석 방향)으로 은은한 흐름
+        vel[i * 3 + 2] += (drift + driftZ) * dt;
+        vel[i * 3] += driftX * dt;
+        // 살짝 떠오르다 haze 처럼 평평하게 깔린다
+        vel[i * 3 + 1] = vel[i * 3 + 1] * (1 - dt * 0.9) + 0.06 * dt;
         pos[i * 3] += vel[i * 3] * dt;
         pos[i * 3 + 1] += vel[i * 3 + 1] * dt;
         pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
-        if (pos[i * 3 + 1] < 0.05) pos[i * 3 + 1] = 0.05; // 바닥 아래로 내려가지 않게
+        // 뿜어져 나온 높이 아래로는 가라앉지 않게 (무대 바닥을 뚫고 내려가지 않도록)
+        if (pos[i * 3 + 1] < baseY[i]) pos[i * 3 + 1] = baseY[i];
         size[i] += grow[i] * dt;
-        // 서서히 나타났다가 천천히 사라짐
-        alpha[i] = Math.min(1, u * 6) * (1 - u) * (1 - u) * (0.45 + density * 0.5);
+        // 부드럽게 나타나 오래 머물다 서서히 사라짐 (겹쳐 쌓여 뿌옇게 보인다)
+        const fadeIn = Math.min(1, u * 8);
+        const fadeOut = Math.min(1, (1 - u) * 2.4);
+        // 파티클이 서로 겹쳐 쌓이므로 낱개 투명도는 아주 낮게 (은은한 헤이즈)
+        alpha[i] = fadeIn * fadeOut * (0.045 + density * 0.075);
       }
       geo.setDrawRange(0, alive);
       geo.attributes.position.needsUpdate = true;
@@ -146,7 +161,7 @@ export function createSmokeSystem(scene, { max = 500 } = {}) {
     },
 
     // 공연 모드에서는 조명 빛줄기와 어우러지도록 살짝 더 진하게
-    setPerform(perform) { mat.uniforms.uOpacity.value = perform ? 1.15 : 0.85; },
+    setPerform(perform) { mat.uniforms.uOpacity.value = perform ? 1.3 : 1.0; },
 
     clear() { alive = 0; geo.setDrawRange(0, 0); points.visible = false; },
 

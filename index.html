@@ -300,6 +300,12 @@
         <p class="pal-help">인물을 꾸미고 <b>자세·움직임</b>을 정해요. (항목을 눌러 펼치세요)</p>
         <div id="epActorChips" class="cz-panel"></div>
       </div>
+      <div id="epSmokeSec" class="hidden">
+        <p class="pal-help">이 기계가 뿜는 <b>안개</b>를 여기서 바로 조절해요.</p>
+        <label class="lp-row"><span>안개 켜기</span><button id="epSmokeOn" class="switch" role="switch" aria-checked="false"></button></label>
+        <label class="lp-row col"><span>안개 농도 <em id="epSmokeVal">보통</em></span><input type="range" id="epSmokeDensity" min="0" max="100" value="55" aria-label="안개 농도"></label>
+        <button id="epSmokeBurst" class="btn secondary wide"><span class="material-icons-outlined">air</span>한 번에 뿜기</button>
+      </div>
       <div id="epSeatSec" class="hidden">
         <button id="epSeatReset" class="btn secondary wide"><span class="material-icons-outlined">restart_alt</span>객석 위치 되돌리기</button>
       </div>
@@ -335,6 +341,7 @@
     <div id="fpJoy" class="fp-joy hidden"><div id="fpKnob" class="fp-knob"></div></div>
     <button id="fpJump" class="fp-jump hidden">⬆<span>점프</span></button>
     <button id="fpExit" class="perform-pill fp-exit hidden" title="일인칭 모드에서 나가기">🚪 일인칭 끝내기</button>
+    <div id="fpGuide" class="fp-guide hidden"></div>
 
     <!-- 플로팅 요소 목록 -->
     <div id="floatList" class="side-panel float-list hidden">

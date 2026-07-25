@@ -487,7 +487,7 @@ export const PROP_CATEGORIES = [
     { id: 'platform', emoji: '🟫', name: '단상 상자', desc: '높이를 주는 플랫폼' },
     { id: 'rope', emoji: '🚧', name: '차단 기둥', desc: '관객 동선을 막는 로프' },
     { id: 'curtain_stand', emoji: '🪟', name: '이동식 커튼', desc: '작은 커튼 스탠드' },
-    { id: 'smoke', emoji: '💨', name: '스모그 머신', desc: '뿌연 안개를 뿜어요 (공연 탭에서 켜고 농도 조절)' },
+    { id: 'smoke', emoji: '💨', name: '스모그 머신', desc: '놓으면 바로 뿌연 안개를 뿜어요 · 클릭하면 농도 조절' },
   ]},
   { id: 'object', name: '물건', emoji: '📦', items: [
     { id: 'crate', emoji: '📦', name: '나무 상자', desc: '쌓아 올릴 수 있는 상자' },
