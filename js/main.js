@@ -116,6 +116,11 @@ function applyHouseLights() {
   ambientL.intensity = HOUSE_BASE.ambient * h * perf + 0.03 + 0.55 * boost;
   hemi.intensity = HOUSE_BASE.hemi * h * perf + 0.02 + 0.65 * boost;
   sun.intensity = HOUSE_BASE.sun * h * perf + 1.5 * boost;
+  // 일인칭은 눈높이라 어두운 벽·천장이 화면을 크게 덮는다 — 최소 밝기를 보장해 말끔하게 보이도록
+  if (state.firstPerson && !state.perform) {
+    ambientL.intensity = Math.max(ambientL.intensity, 0.62);
+    hemi.intensity = Math.max(hemi.intensity, 0.82);
+  }
   const bg = new THREE.Color(envLightCfg.bg);
   if (state.perform) bg.multiplyScalar(0.16);
   else if (boost > 0) bg.lerp(new THREE.Color(0x2a2d36), boost * 0.6); // 최대에서 배경도 살짝 밝게
@@ -202,9 +207,21 @@ function makeCurtain(width, height, color) {
   const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.85, side: THREE.DoubleSide }));
   m.castShadow = true; m.receiveShadow = true; return m;
 }
+// 극장 내부(벽·천장) — 일인칭 눈높이에서 새까만 벽으로 보이지 않도록 참조를 들고 있는다
+let roomMesh = null;
 function makeRoom(size, height, color) {
   const room = new THREE.Mesh(new THREE.BoxGeometry(size, height, size), new THREE.MeshStandardMaterial({ color, roughness: 0.96, side: THREE.BackSide }));
   room.position.y = height / 2 - 0.05; room.receiveShadow = true; envGroup.add(room);
+  roomMesh = room;
+  applyRoomFill();
+  return room;
+}
+// 일인칭 모드에서는 벽·천장을 아주 살짝 밝혀 '검은 그늘'처럼 보이지 않게 한다
+function applyRoomFill() {
+  if (!roomMesh?.material?.emissive) return;
+  const on = state.firstPerson && !state.perform;
+  roomMesh.material.emissive.setHex(on ? 0x343845 : 0x000000);
+  roomMesh.material.emissiveIntensity = on ? 1 : 0;
 }
 function makeFloor(color, texture = null) {
   const params = texture ? { color: 0xffffff, roughness: 0.95, map: texture } : { color, roughness: 0.95 };
@@ -593,6 +610,7 @@ function stageFrame() {
 }
 function buildEnvironment(id) {
   envGroup.clear(); seatGroup.clear(); envAnims = [];
+  roomMesh = null;   // 이전 무대의 방은 사라졌다 (야외 무대는 방이 없음)
   const p = PRESETS[id];
   envLightCfg = { ...envLightCfg, ...p.env };
   hemi.color.set(p.env.hemiSky);
@@ -1027,7 +1045,7 @@ const ep = {
   scaleRow: document.getElementById('epScaleRow'), scale: document.getElementById('epScale'), scaleVal: document.getElementById('epScaleVal'),
   rotRow: document.getElementById('epRotRow'), rot: document.getElementById('epRot'), rotVal: document.getElementById('epRotVal'),
   lightSec: document.getElementById('epLightSec'), blockSec: document.getElementById('epBlockSec'), actorSec: document.getElementById('epActorSec'),
-  seatSec: document.getElementById('epSeatSec'),
+  seatSec: document.getElementById('epSeatSec'), smokeSec: document.getElementById('epSmokeSec'),
 };
 function elementDisplayName(kind, ref) {
   if (kind === 'seats') return '객석 전체';
@@ -1054,6 +1072,8 @@ function openEditPanel() {
   ep.blockSec.classList.toggle('hidden', kind !== 'block');
   ep.actorSec.classList.toggle('hidden', !(kind === 'prop' && isPerson(ref.type)));
   ep.seatSec.classList.toggle('hidden', kind !== 'seats');
+  ep.smokeSec.classList.toggle('hidden', !(kind === 'prop' && ref.type === 'smoke'));
+  if (kind === 'prop' && ref.type === 'smoke') refreshSmokeUI();
   ep.move.classList.toggle('mode-on', state.moveMode);
   if (!ep.rotRow.classList.contains('hidden')) setRotSlider(currentRotOf(s));
   if (kind === 'seats') { showPanel('editPanel'); return; }
@@ -1330,7 +1350,11 @@ function onLeftClick(ev) {
     const hit = pick(ev, [...blockGroup.children, groundPlane]); if (!hit) return;
     const extra = state.propType === 'actor' ? { cfg: { ...state.actorCfg }, pose: state.actorPose } : {};
     const P = addPropRaw(state.propType, snapHalf(hit.point.x), snapHalf(hit.point.y), snapHalf(hit.point.z), state.propRot, state.propVariant, true, extra);
-    if (P) { blip(540); markDirty(); renderElementList(); if (state.propType === 'ball') { state.propVariant = (state.propVariant + 1) % 8; refreshPropGhost(); } }
+    if (P) {
+      blip(540); markDirty(); renderElementList();
+      if (P.type === 'smoke') autoEnableSmoke();
+      if (state.propType === 'ball') { state.propVariant = (state.propVariant + 1) % 8; refreshPropGhost(); }
+    }
   } else if (isSelectMode()) {
     const hit = pick(ev, selectTargets());
     if (hit) {
@@ -2100,7 +2124,7 @@ performPill.addEventListener('click', () => {
   performPill.textContent = state.perform ? '☀️ 공연 끝내기' : '🌙 공연 모드';
   applyHouseLights();
   lights.forEach(updateLightVisual);
-  smoke.setPerform(state.perform);
+  smoke.setPerform(state.perform); applyRoomFill();
   toast(state.perform ? '🌙 공연 시작! 여러분의 조명이 무대를 밝혀요' : '☀️ 다시 만들기 모드로 돌아왔어요');
 });
 
@@ -2142,29 +2166,46 @@ function smokeMachines() {
   return out;
 }
 const SMOKE_LABELS = [[0.2, '아주 옅게'], [0.45, '옅게'], [0.7, '보통'], [0.9, '진하게'], [1.01, '아주 진하게']];
+const smokeLabel = () => SMOKE_LABELS.find(([v]) => state.smokeDensity < v)?.[1] ?? '보통';
+// 공연 탭 카드와 편집 패널의 안개 컨트롤을 항상 같은 상태로 맞춘다
 function refreshSmokeUI() {
   const n = props.filter(p => p.type === 'smoke').length;
-  const el = document.getElementById('smokeCount');
-  el.textContent = n ? `💨 스모그 머신 ${n}대가 놓여 있어요` : '아직 놓인 스모그 머신이 없어요';
-  document.getElementById('smokeDensityVal').textContent = SMOKE_LABELS.find(([v]) => state.smokeDensity < v)?.[1] ?? '보통';
+  document.getElementById('smokeCount').textContent = n ? `💨 스모그 머신 ${n}대가 놓여 있어요` : '아직 놓인 스모그 머신이 없어요';
+  document.getElementById('smokeDensityVal').textContent = smokeLabel();
+  setSwitch(document.getElementById('tgSmoke'), state.smokeOn);
+  document.getElementById('smokeDensity').value = Math.round(state.smokeDensity * 100);
+  // 편집 패널(스모그 머신 선택 시)
+  setSwitch(document.getElementById('epSmokeOn'), state.smokeOn);
+  document.getElementById('epSmokeDensity').value = Math.round(state.smokeDensity * 100);
+  document.getElementById('epSmokeVal').textContent = smokeLabel();
 }
-document.getElementById('tgSmoke').addEventListener('click', function () {
-  state.smokeOn = !state.smokeOn; setSwitch(this, state.smokeOn);
-  if (!state.smokeOn) smoke.clear();
+function setSmokeOn(on, silent = false) {
+  state.smokeOn = on;
+  if (!on) smoke.clear();
   refreshSmokeUI(); markDirty();
-  const n = props.filter(p => p.type === 'smoke').length;
-  if (state.smokeOn && !n) toast('💨 안개를 켰어요 — 꾸미기 → 무대장치에서 스모그 머신을 놓아 주세요');
-  else toast(state.smokeOn ? '💨 스모그 머신이 안개를 뿜어요!' : '안개를 껐어요');
-});
-document.getElementById('smokeDensity').addEventListener('input', ev => {
-  state.smokeDensity = ev.target.value / 100; refreshSmokeUI(); markDirty();
-});
-document.getElementById('btnSmokeBurst').addEventListener('click', () => {
+  if (silent) return;
+  if (on && !props.some(p => p.type === 'smoke')) toast('💨 안개를 켰어요 — 꾸미기 → 무대장치에서 스모그 머신을 놓아 주세요');
+  else toast(on ? '💨 스모그 머신이 안개를 뿜어요!' : '안개를 껐어요');
+}
+function setSmokeDensity(v) { state.smokeDensity = v; refreshSmokeUI(); markDirty(); }
+function smokeBurst() {
   if (!props.some(p => p.type === 'smoke')) { toast('먼저 스모그 머신을 무대에 놓아 주세요 (꾸미기 → 무대장치)'); return; }
-  if (!state.smokeOn) { state.smokeOn = true; setSwitch(document.getElementById('tgSmoke'), true); }
+  if (!state.smokeOn) setSmokeOn(true, true);
   state.smokeBurst = 26; blip(300);
   toast('💨 푸쉬— 안개를 한 번에 뿜었어요!');
-});
+}
+// 스모그 머신을 처음 놓으면 안개를 바로 켜 준다 (놓았는데 아무 일도 안 일어나 헷갈리지 않도록)
+function autoEnableSmoke() {
+  if (state.smokeOn) { toast('💨 스모그 머신을 놓았어요!'); return; }
+  setSmokeOn(true, true);
+  toast('💨 스모그 머신을 놓고 안개를 바로 켰어요! (기계를 클릭하면 농도를 바꿀 수 있어요)');
+}
+document.getElementById('tgSmoke').addEventListener('click', () => setSmokeOn(!state.smokeOn));
+document.getElementById('smokeDensity').addEventListener('input', ev => setSmokeDensity(ev.target.value / 100));
+document.getElementById('btnSmokeBurst').addEventListener('click', smokeBurst);
+document.getElementById('epSmokeOn').addEventListener('click', () => setSmokeOn(!state.smokeOn));
+document.getElementById('epSmokeDensity').addEventListener('input', ev => setSmokeDensity(ev.target.value / 100));
+document.getElementById('epSmokeBurst').addEventListener('click', smokeBurst);
 
 // ---------------- 영상 촬영 (WebM) ----------------
 const recUI = {
@@ -2439,6 +2480,19 @@ const firstPerson = createFirstPerson({
 const fpJoy = document.getElementById('fpJoy'), fpKnob = document.getElementById('fpKnob');
 const fpJumpBtn = document.getElementById('fpJump'), fpExitBtn = document.getElementById('fpExit');
 const fpBtn = document.getElementById('btnFirstPerson');
+const fpGuide = document.getElementById('fpGuide');
+let fpGuideTimer = null;
+// 일인칭에 들어가면 조작법을 화면 안에서 잠깐 보여준다 (사이드바를 못 봐도 알 수 있게)
+function showFpGuide() {
+  const touch = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  fpGuide.innerHTML = touch
+    ? '<span>🕹️ 조이스틱 <b>이동</b></span><span>⬆ <b>점프</b></span><span>👆 화면 끌기 <b>둘러보기</b></span>'
+    : '<span><b>방향키</b> 이동</span><span><b>스페이스</b> 점프</span><span><b>드래그</b> 둘러보기</span><span><b>ESC</b> 나가기</span>';
+  fpGuide.classList.remove('hidden', 'fade');
+  clearTimeout(fpGuideTimer);
+  fpGuideTimer = setTimeout(() => fpGuide.classList.add('fade'), 6000);
+}
+function hideFpGuide() { clearTimeout(fpGuideTimer); fpGuide.classList.add('hidden'); }
 
 function enterFirstPerson() {
   if (state.firstPerson) return;
@@ -2449,9 +2503,11 @@ function enterFirstPerson() {
   // 무대 한가운데(무대 바닥 위)에서 객석 쪽을 향해 시작 — 바로 무대를 걸어 다닐 수 있게
   const fr = stageFrame();
   firstPerson.enter({ x: fr.cx, z: (fr.cz + fr.frontZ) / 2, facing: Math.PI }); // 배우처럼 객석을 바라보며 시작
+  applyRoomFill(); applyHouseLights();
   document.getElementById('viewport').classList.add('fp-on');
   fpJoy.classList.remove('hidden'); fpJumpBtn.classList.remove('hidden'); fpExitBtn.classList.remove('hidden');
   fpBtn.classList.add('mode-on');
+  showFpGuide();
   setHint('🚶 방향키·조이스틱으로 걷고, 스페이스바·점프 버튼으로 뛰어요! 화면을 끌면 고개가 돌아가요 (ESC = 나가기)');
   toast('🚶 일인칭 모드! 무대 위를 걸어 다녀 보세요');
 }
@@ -2460,8 +2516,9 @@ function exitFirstPerson() {
   state.firstPerson = false;
   firstPerson.exit();
   controls.enabled = true;
+  applyRoomFill(); applyHouseLights();
   document.getElementById('viewport').classList.remove('fp-on');
-  fpJoy.classList.add('hidden'); fpJumpBtn.classList.add('hidden'); fpExitBtn.classList.add('hidden');
+  fpJoy.classList.add('hidden'); fpJumpBtn.classList.add('hidden'); fpExitBtn.classList.add('hidden'); hideFpGuide();
   fpBtn.classList.remove('mode-on');
   camRig.fitView(HOME_VIEW);   // 원래 시점으로 부드럽게 복귀
   updateHint();

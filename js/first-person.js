@@ -145,6 +145,10 @@ export function createFirstPerson({ scene, camera, blocks, buildAvatar, applyPos
       if (!active) {
         if (body) avatar.remove(body);
         body = buildAvatar(cfg);
+        // 카메라가 머리 안쪽에 있으므로 머리·머리카락·모자를 숨긴다.
+        // (숨기지 않으면 머리카락 블록이 화면 위쪽을 검게 가린다)
+        const neck = body.userData?.rig?.neck;
+        if (neck) neck.visible = false;
         avatar.add(body);
       }
       pos.set(x, 0, z);
